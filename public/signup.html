@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="signup">注册 - 天下太平</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="language-selector"></div>
+    <div class="auth-form">
+        <h2 data-i18n="signup">注册</h2>
+        <div id="message" class="message"></div>
+        <form id="signup-form">
+            <div class="form-group">
+                <label for="username" data-i18n="username">用户名</label>
+                <input type="text" id="username" name="username" data-i18n-placeholder="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password" data-i18n="password">密码</label>
+                <input type="password" id="password" name="password" data-i18n-placeholder="password" required>
+            </div>
+            <div class="form-group">
+                <label for="confirm-password" data-i18n="confirm_password">确认密码</label>
+                <input type="password" id="confirm-password" name="confirm-password" data-i18n-placeholder="confirm_password" required>
+            </div>
+            <button type="submit" data-i18n="signup">注册</button>
+        </form>
+        <div class="form-footer">
+            <p><span data-i18n="have_account">已有账号?</span> <a href="/login.html" data-i18n="login">登录</a></p>
+            <p><a href="/" data-i18n="back_to_home">返回首页</a></p>
+        </div>
+    </div>
+
+    <script type="module">
+        import i18n from './js/i18n.js';
+        import { createLanguageSelector } from './js/language-selector.js';
+        
+        // Initialize translations
+        document.addEventListener('DOMContentLoaded', () => {
+            i18n.init();
+            createLanguageSelector('language-selector');
+        });
+        
+        // Add translation for title
+        const titleKey = 'signup';
+        document.title = `${i18n.translate(titleKey)} - ${i18n.translate('title')}`;
+        
+        // Listen for language changes to update title
+        document.addEventListener('languageChanged', () => {
+            document.documentElement.lang = i18n.getCurrentLanguage();
+            document.title = `${i18n.translate(titleKey)} - ${i18n.translate('title')}`;
+        });
+        document.getElementById('signup-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            
+            console.log('Signup attempt for user:', username);
+            
+            if (password !== confirmPassword) {
+                console.warn('Passwords do not match');
+                showMessage(i18n.translate('passwords_mismatch'), 'error');
+                return;
+            }
+            
+            try {
+                console.log('Sending signup request...');
+                const response = await fetch('/api/signup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                console.log('Signup response received:', response.status, response.statusText);
+                
+                let data;
+                try {
+                    data = await response.json();
+                    console.log('Response data:', data);
+                } catch (parseError) {
+                    console.error('Error parsing response JSON:', parseError);
+                    data = {};
+                }
+                
+                if (response.ok) {
+                    // Signup successful
+                    console.log('Signup successful, redirecting...');
+                    showMessage(i18n.translate('signup_success'), 'success');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1000);
+                } else {
+                    // Signup failed
+                    console.error('Signup failed:', data.error || 'Unknown error');
+                    showMessage(data.error || i18n.translate('system_error'), 'error');
+                }
+            } catch (error) {
+                console.error('Signup request error:', error);
+                showMessage(i18n.translate('system_error'), 'error');
+            }
+        });
+        
+        function showMessage(text, type) {
+            const messageEl = document.getElementById('message');
+            messageEl.textContent = text;
+            messageEl.className = `message ${type}`;
+            messageEl.style.display = 'block';
+        }
+    </script>
+</body>
+</html> 

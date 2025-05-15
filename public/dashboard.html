@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="user_profile">个人中心 - 天下太平</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="language-selector"></div>
+    <div class="header">
+        <a href="/" class="site-title" data-i18n="title">天下太平</a>
+        <div class="auth-links" id="auth-links">
+            <a href="/login.html" data-i18n="login">登录</a>
+            <a href="/signup.html" data-i18n="signup">注册</a>
+        </div>
+    </div>
+    <div class="dashboard-container">
+        <h2 data-i18n="user_profile">个人中心</h2>
+        <div id="message" class="message"></div>
+        
+        <div class="user-info">
+            <div class="user-avatar" id="avatar">?</div>
+            <div class="user-details">
+                <h3 id="username-display">加载中...</h3>
+                <div class="user-rank"><span data-i18n="rank">等级</span>: <span id="rank-display">-</span></div>
+            </div>
+        </div>
+        
+        <div>
+            <h3 data-i18n="welcome">欢迎来到天下太平</h3>
+            <p id="welcome-message"></p>
+        </div>
+        
+        <div class="dashboard-actions">
+            <button id="home-btn" data-i18n="back_to_home">返回首页</button>
+            <button class="logout" id="logout-btn" data-i18n="logout">退出登录</button>
+            <button id="admin-btn" style="display:none;">Admin Panel</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import i18n from './js/i18n.js';
+        import { createLanguageSelector } from './js/language-selector.js';
+        
+        // Initialize translations
+        document.addEventListener('DOMContentLoaded', () => {
+            i18n.init();
+            createLanguageSelector('language-selector');
+            
+            // Set up home button click handler
+            document.getElementById('home-btn').addEventListener('click', () => {
+                window.location.href = '/';
+            });
+            
+            // Set welcome message
+            document.getElementById('welcome-message').textContent = i18n.translate('profile_welcome_text');
+            
+            // Make i18n available to other scripts
+            window.i18n = i18n;
+        });
+        
+        // Add translation for title
+        const titleKey = 'user_profile';
+        document.title = `${i18n.translate(titleKey)} - ${i18n.translate('title')}`;
+        
+        // Listen for language changes to update title and dynamic content
+        document.addEventListener('languageChanged', () => {
+            document.documentElement.lang = i18n.getCurrentLanguage();
+            document.title = `${i18n.translate(titleKey)} - ${i18n.translate('title')}`;
+            document.getElementById('welcome-message').textContent = i18n.translate('profile_welcome_text');
+        });
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Get i18n object from the module
+            const i18n = window.i18n;
+            
+            try {
+                // Fetch user data
+                const response = await fetch('/api/user/me');
+                
+                if (response.status === 401) {
+                    // Not logged in
+                    window.location.href = '/login.html';
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Update auth links
+                    const authLinks = document.getElementById('auth-links');
+                    authLinks.innerHTML = `
+                        <a href="/dashboard.html" id="welcome-user" data-i18n="user_profile"></a>
+                        <a href="#" id="logout-link" data-i18n="logout"></a>
+                    `;
+                    
+                    // Update welcome text
+                    document.getElementById('welcome-user').textContent = `${i18n.translate('welcome')}, ${data.username}`;
+                    
+                    // Apply translations to newly created elements
+                    i18n.applyTranslations();
+                    
+                    // Add logout functionality
+                    document.getElementById('logout-link').addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        try {
+                            await fetch('/api/logout', {
+                                method: 'POST'
+                            });
+                            window.location.href = '/';
+                        } catch (error) {
+                            console.error('Logout failed', error);
+                        }
+                    });
+
+                    // Update user information
+                    document.getElementById('username-display').textContent = data.username;
+                    document.getElementById('rank-display').textContent = data.rank;
+                    document.getElementById('avatar').textContent = data.username.charAt(0).toUpperCase();
+                    
+                    // Show admin panel button if user has admin rank
+                    if (data.rank >= 10) {
+                        const adminBtn = document.getElementById('admin-btn');
+                        adminBtn.style.display = 'block';
+                        adminBtn.addEventListener('click', () => {
+                            window.location.href = '/admin.html';
+                        });
+                    }
+                } else {
+                    showMessage(data.error || i18n.translate('system_error'), 'error');
+                }
+            } catch (error) {
+                showMessage(i18n.translate('system_error'), 'error');
+                console.error(error);
+            }
+        });
+        
+        function showMessage(text, type) {
+            const messageEl = document.getElementById('message');
+            messageEl.textContent = text;
+            messageEl.className = `message ${type}`;
+            messageEl.style.display = 'block';
+        }
+    </script>
+</body>
+</html> 

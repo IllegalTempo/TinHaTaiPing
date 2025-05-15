@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="game_over">游戏结束</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="language-selector"></div>
+    <div class="header">
+        <a href="/" class="site-title" data-i18n="title">天下太平</a>
+        <div class="auth-links" id="auth-links">
+            <a href="/login.html" data-i18n="login">登录</a>
+            <a href="/signup.html" data-i18n="signup">注册</a>
+        </div>
+    </div>
+    <div class="game-over-container">
+        <h2 data-i18n="game_over">游戏结束</h2>
+        <div class="game-over-content">
+            <p data-i18n="result_message">结果:</p>
+            <div id="ending-result" class="result-text"></div>
+        </div>
+    <div class="ending-container">
+        <h1 id="ending-result"></h1>
+        <button id="return-main" class="action-button" data-i18n="return_main">返回主界面</button>
+    </div>
+    <script type="module">
+        import i18n from './js/i18n.js';
+        import { createLanguageSelector } from './js/language-selector.js';
+        
+        // Initialize translations
+        document.addEventListener('DOMContentLoaded', () => {
+            i18n.init();
+            createLanguageSelector('language-selector');
+            // Get result from query string
+        
+        });
+        const params = new URLSearchParams(window.location.search);
+        const result = params.get('result');
+        let text = '';
+        if (result === 'win') text = i18n.translate('you_win') || 'You Win!';
+        else if (result === 'lose') text = i18n.translate('you_lose') || 'You Lose!';
+        else text = i18n.translate('draw') || 'Draw';
+        document.getElementById('ending-result').textContent = text;
+        document.getElementById('return-main').onclick = () => {
+            window.location.href = '/';
+        };
+        try {
+        // Check if user is logged in
+        const response = await fetch('/api/user/me');
+        
+        if (response.status !== 401) {
+            // User is logged in, update the auth links
+            const data = await response.json();
+            const authLinks = document.getElementById('auth-links');
+            authLinks.innerHTML = `
+                <a href="/dashboard.html" id="welcome-user" data-i18n="user_profile"></a>
+                <a href="#" id="logout-link" data-i18n="logout"></a>
+            `;
+            
+            // Update welcome text
+            document.getElementById('welcome-user').textContent = `${i18n.translate('welcome')}, ${data.username}`;
+            
+            // Apply translations to newly created elements
+            i18n.applyTranslations();
+            
+            // Add logout functionality
+            document.getElementById('logout-link').addEventListener('click', async (e) => {
+                e.preventDefault();
+                
+                try {
+                    await fetch('/api/logout', {
+                        method: 'POST'
+                    });
+                    window.location.reload();
+                } catch (error) {
+                    console.error('Logout failed', error);
+                }
+            });
+            
+            // Check for last room
+            try {
+                const lastRoomResponse = await fetch('/api/user/last-room');
+                if (lastRoomResponse.ok) {
+                    const lastRoomData = await lastRoomResponse.json();
+                    
+                    if (lastRoomData.hasLastRoom && lastRoomData.roomId) {
+                        lastRoom = lastRoomData.roomId;
+                        lastRoomId.textContent = lastRoom;
+                        lastRoomPrompt.style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking last room:', error);
+            }
+        }
+    } catch (error) {
+        console.error('Error checking auth status', error);
+    }
+    </script>
+</body>
+</html>

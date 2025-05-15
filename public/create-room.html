@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">天下太平</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div id="language-selector"></div>
+    <div class="header">
+        <a href="/" class="site-title" data-i18n="title">天下太平</a>
+        <div class="auth-links" id="auth-links">
+            <a href="/login.html" data-i18n="login">登录</a>
+            <a href="/signup.html" data-i18n="signup">注册</a>
+        </div>
+    </div>
+
+    <div class="create-room-container">
+        <h2 data-i18n="create_room">创建房间</h2>
+        
+        <div class="room-type-container">
+            <button class="room-type-button" id="one-v-one-btn">1v1</button>
+        </div>
+        
+        <div id="error-message" class="message error" style="display: none; margin-top: 20px;">
+            请先登录后再创建房间
+        </div>
+        
+        <div class="back-link">
+            <a href="index.html" data-i18n="back_to_home">返回首页</a>
+        </div>
+    </div>
+    
+    <script type="module">
+        import i18n from './js/i18n.js';
+        import { createLanguageSelector } from './js/language-selector.js';
+        
+        // Initialize the i18n system
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Initialize language system
+            i18n.init();
+            
+            // Create language selector
+            createLanguageSelector('language-selector');
+            
+            const createRoomBtn = document.getElementById('one-v-one-btn');
+            const errorMessage = document.getElementById('error-message');
+            let currentUser = null;
+            
+            try {
+                // Check if user is logged in
+                const response = await fetch('/api/user/me');
+                
+                if (response.status !== 401) {
+                    // User is logged in
+                    const data = await response.json();
+                    currentUser = data;
+                    
+                    // Update auth links
+                    const authLinks = document.getElementById('auth-links');
+                    authLinks.innerHTML = `
+                        <a href="/dashboard.html" id="welcome-user" data-i18n="user_profile"></a>
+                        <a href="#" id="logout-link" data-i18n="logout"></a>
+                    `;
+                    
+                    // Update welcome text
+                    document.getElementById('welcome-user').textContent = `${i18n.translate('welcome')}, ${data.username}`;
+                    
+                    // Apply translations to newly created elements
+                    i18n.applyTranslations();
+                    
+                    // Add logout functionality
+                    document.getElementById('logout-link').addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        
+                        try {
+                            await fetch('/api/logout', {
+                                method: 'POST'
+                            });
+                            window.location.reload();
+                        } catch (error) {
+                            console.error('Logout failed', error);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error checking auth status', error);
+            }
+            
+            // Set up 1v1 button event listener
+            createRoomBtn.addEventListener('click', async () => {
+                try {
+                    // Check login status again when button is clicked
+                    const response = await fetch('/api/user/me');
+                    
+                    if (response.status === 401) {
+                        // Show error message if not logged in
+                        errorMessage.style.display = 'block';
+                        return;
+                    }
+                    
+                    // Get user data
+                    const data = await response.json();
+                    currentUser = data;
+                    
+                    // Generate a unique room ID (same format as server)
+                    const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+                    
+                    // Redirect to game room page with room ID
+                    window.location.href = `/game-room.html?roomId=${roomId}&username=${encodeURIComponent(currentUser.username)}`;
+                    
+                } catch (error) {
+                    console.error('Error creating room:', error);
+                    errorMessage.style.display = 'block';
+                }
+            });
+        });
+    </script>
+</body>
+</html> 

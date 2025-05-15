@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">天下太平 - <span data-i18n="one_v_one">1v1</span></title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div id="language-selector"></div>
+    <div class="header">
+        <a href="/" class="site-title" data-i18n="title">天下太平</a>
+        <div class="auth-links" id="auth-links">
+            <a href="/login.html" data-i18n="login">登录</a>
+            <a href="/signup.html" data-i18n="signup">注册</a>
+        </div>
+    </div>
+
+    <div class="game-room-container">
+        <h2><span data-i18n="one_v_one">1v1</span></h2>
+        
+        <div class="room-info">
+            <p><span data-i18n="player_count">玩家数量</span>: <span id="player-count">1</span></p>
+            <p><span data-i18n="room_id">房间号</span>: <span id="room-id"></span></p>
+            <button id="copy-room-link" class="action-button copy" data-i18n="copy_room_link">复制房间链接</button>
+        </div>
+        
+        <div class="player-list">
+            <h3 data-i18n="player_list">玩家列表</h3>
+            <ul id="players"></ul>
+        </div>
+        
+        <div class="room-actions">
+            <button id="start-game-btn" class="action-button start" data-i18n="start_game">开始游戏</button>
+            <button id="leave-room-btn" class="action-button leave" data-i18n="leave_room">离开房间</button>
+        </div>
+
+        <!-- Game container that appears when game starts -->
+        <div id="game-container" style="display: none;">
+            <div class="game-header">
+                <div class="player-info left">
+                    <span class="player-name"></span>
+                    <div class="hp-bar">
+                        <div class="hp-fill"></div>
+                    </div>
+                    
+                    <div class="gold-display">
+                        <img src="images/coin.png" alt="Gold" class="gold-icon">
+                        <span class="gold-amount">0</span>
+                    </div>
+                </div>
+                <div class="rps-status">
+                    <div id="rps-message">Choose rock, paper, or scissors</div>
+                    <div id="rps-timer" style="display: none;">Next round: <span id="timer-count">10</span>s</div>
+                    <div class="player-controls">
+                        <div class="rps-controls" id="player-controls">
+                            <button class="rps-btn" data-choice="rock">✊</button>
+                            <button class="rps-btn" data-choice="paper">✋</button>
+                            <button class="rps-btn" data-choice="scissors">✌️</button>
+                        </div>
+                        <div class="rps-result" id="player-choice"></div>
+                    </div>
+                </div>
+                <div class="player-info right">
+                    <span class="player-name" id="opponent-name"></span>
+                    <div class="hp-bar">
+                        <div class="hp-fill"></div>
+                    </div>
+                    <div class="opponent-controls">
+                        <div class="rps-result" id="opponent-choice"></div>
+                    </div>
+                    <div class="gold-display">
+                        <img src="images/coin.png" alt="Gold" class="gold-icon">
+                        <span class="gold-amount">0</span>
+                    </div>
+                </div>
+            </div>
+            <div class="game-field">
+                <div class="tower left">
+                    <img src="images/tower.png" alt="Left Tower" class="tower-image">
+                </div>
+                <div class="tower right">
+                    <img src="images/tower.png" alt="Right Tower" class="tower-image">
+                </div>
+                <!-- Static minerals -->
+                <div class="mineral left">
+                    <img src="images/mineral.png" alt="Left Mineral" class="mineral-image">
+                </div>
+                <div class="mineral right">
+                    <img src="images/mineral.png" alt="Right Mineral" class="mineral-image">
+                </div>
+            </div>
+            <div class="unit-selection-bar">
+                <div class="unit-option" data-unit="miner">
+                    <img src="images/miner.png" alt="Miner" class="unit-icon">
+                    <span class="unit-cost">100</span>
+                </div>
+                <div class="unit-option" data-unit="soldier">
+                    <img src="images/soldier.png" alt="Soldier" class="unit-icon">
+                    <span class="unit-cost">200</span>
+                </div>
+                <div class="unit-option" data-unit="barrier">
+                    <img src="images/barrier.png" alt="Barrier" class="unit-icon">
+                    <span class="unit-cost">50</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/common.js"></script>
+    <script type="module" src="js/pages/game-room.js"></script>
+</body>
+</html>

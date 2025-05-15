@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">天下太平</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="language-selector"></div>
+    <div class="header">
+        <a href="/" class="site-title" data-i18n="title">天下太平</a>
+        <div class="auth-links" id="auth-links">
+            <a href="/login.html" data-i18n="login">登录</a>
+            <a href="/signup.html" data-i18n="signup">注册</a>
+        </div>
+    </div>
+
+    <div class="title-container">
+        <h1 data-i18n="title">天下太平</h1>
+        
+        <div class="room-buttons">
+            <button class="room-button create" id="create-room-btn" data-i18n="create_room">创建房间</button>
+            <button class="room-button join" id="join-room-btn" data-i18n="join_room">加入房间</button>
+        </div>
+        
+        <!-- Last Room Prompt -->
+        <div id="last-room-prompt" class="last-room-prompt" style="display: none; margin-top: 20px;">
+            <p><span data-i18n="last_room_message">您有一个进行中的游戏房间</span>: <span id="last-room-id"></span></p>
+            <button class="room-button rejoin" id="rejoin-room-btn" data-i18n="rejoin_room">重新加入房间</button>
+        </div>
+        
+        <div id="error-message" class="message error" style="display: none; margin-top: 20px;" data-i18n="login_required">
+            请先登录后再创建房间
+        </div>
+    </div>
+    
+    <!-- Join Room Modal -->
+    <div class="join-room-modal" id="join-room-modal">
+        <div class="join-room-content">
+            <div class="join-room-header">
+                <h3 data-i18n="join_room">加入房间</h3>
+                <button class="join-room-close" id="close-modal">&times;</button>
+            </div>
+            <div class="join-room-form">
+                <input type="text" class="room-id-input" id="room-id-input" data-i18n-placeholder="room_id" placeholder="Room ID">
+                <button class="join-button" id="submit-join-room">
+                    <span data-i18n="join_room">加入房间</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/common.js"></script>
+    <script type="module" src="js/pages/index.js"></script>
+</body>
+</html> 

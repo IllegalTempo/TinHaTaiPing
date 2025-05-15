@@ -50,7 +50,8 @@ io.use((socket, next) => {
     sessionMiddleware(socket.request, socket.request.res || {}, next);
 });
 
-// Serve static files from the current directory
+// Serve static files from both the current directory and public directory
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
 // Authentication middleware
