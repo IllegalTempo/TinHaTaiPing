@@ -1045,4 +1045,3 @@ if (require.main === module) {
 
 // Export for Vercel
 module.exports = app;
-startServer();
