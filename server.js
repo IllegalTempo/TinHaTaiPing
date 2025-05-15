@@ -7,12 +7,11 @@ const prisma = require('./prisma/client');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const fs = require('fs');
-const SQLiteStore = require('connect-sqlite3')(session);
 
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer);
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Ensure db directory exists
 const dbDir = path.join(__dirname, 'db');
@@ -30,18 +29,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Create session middleware
+// Create session middleware using memory store for Vercel (note: in production you would want to use a proper session store)
 const sessionMiddleware = session({
-    store: new SQLiteStore({ 
-        db: 'sessions.sqlite',
-        dir: dbDir,
-        table: 'sessions'
-    }),
-    secret: 'tianxia-taiping-secret-key',
-    resave: true,
-    saveUninitialized: true,
+    secret: process.env.SESSION_SECRET || 'tianxia-taiping-secret-key',
+    resave: false,
+    saveUninitialized: false,
     cookie: { 
-        secure: false, 
+        secure: process.env.NODE_ENV === 'production', 
         maxAge: 24 * 60 * 60 * 1000, // 1 day
         httpOnly: true,
         sameSite: 'lax'
@@ -1033,14 +1027,22 @@ async function startServer() {
     console.log('Starting server and initializing database...');
     
     httpServer.listen(PORT, () => {
-      console.log(`Server is running on http://localhost:${PORT}`);
+      console.log(`Server running on port ${PORT}`);
       console.log(`Website "天下太平" is now available!`);
       console.log(`Press Ctrl+C to stop the server.`);
     });
+    return httpServer;
   } catch (error) {
     console.error('Failed to start server:', error);
-    process.exit(1);
+    throw error;
   }
 }
 
+// Use this for local development
+if (require.main === module) {
+  startServer();
+}
+
+// Export for Vercel
+module.exports = app;
 startServer();
