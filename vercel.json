@@ -1,16 +1,24 @@
 {
   "version": 2,
-  "public": true,
   "builds": [
-    { "src": "server.js", "use": "@vercel/node" },
-    { "src": "public/**/*", "use": "@vercel/static" }
+    { "src": "public/**/*", "use": "@vercel/static" },
+    { "src": "server.js", "use": "@vercel/node" }
   ],
   "routes": [
+    { "src": "^/signup$", "dest": "/public/signup.html" },
+    { "src": "^/login$", "dest": "/public/login.html" },
+    { "src": "^/admin$", "dest": "/public/admin.html" },
+    { "src": "^/dashboard$", "dest": "/public/dashboard.html" },
+    { "src": "^/create-room$", "dest": "/public/create-room.html" },
+    { "src": "^/game-room$", "dest": "/public/game-room.html" },
+    { "src": "^/ending$", "dest": "/public/ending.html" },
+    { "src": "^/$", "dest": "/public/index.html" },
     { "src": "/styles.css", "dest": "/public/styles.css" },
     { "src": "/js/(.*)", "dest": "/public/js/$1" },
     { "src": "/images/(.*)", "dest": "/public/images/$1" },
     { "src": "/favicon.ico", "dest": "/public/favicon.ico" },
-    { "src": "/(.*).html", "dest": "/public/$1.html" },
+    { "src": "/api/(.*)", "dest": "/server.js" },
+    { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/server.js" }
   ]
 } 
