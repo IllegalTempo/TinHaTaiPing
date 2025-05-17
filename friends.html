@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Friends - World Peace Online</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            background-color: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+        }
+
+        .friend-list {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        .friend-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #fff;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .friend-request {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #fff;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .friend-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-duel {
+            background-color: #ff9800;
+        }
+
+        .btn-remove {
+            background-color: #f44336;
+        }
+
+        .btn-accept {
+            background-color: #4CAF50;
+        }
+
+        .btn-reject {
+            background-color: #f44336;
+        }
+
+        .empty-list {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-style: italic;
+        }
+
+        .search-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .search-form input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .error-message, .success-message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .error-message {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+
+        .success-message {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Friends</h1>
+        <nav>
+            <a href="dashboard.html">Dashboard</a>
+        </nav>
+
+        <div id="errorContainer" class="error-message" style="display: none;"></div>
+        <div id="successContainer" class="success-message" style="display: none;"></div>
+
+        <div class="section">
+            <h2>Add Friend</h2>
+            <form id="addFriendForm" class="search-form">
+                <input type="text" id="usernameInput" placeholder="Enter username" required>
+                <button type="submit" class="btn">Send Request</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h2>Friend Requests</h2>
+            <div id="friendRequests">
+                <div class="empty-list">No pending friend requests</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Your Friends</h2>
+            <div id="friendsList">
+                <div class="empty-list">You don't have any friends yet</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check authentication on page load
+            checkAuth();
+
+            // Load friend requests and friend list
+            loadFriendRequests();
+            loadFriends();
+
+            // Add friend form submission
+            document.getElementById('addFriendForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const username = document.getElementById('usernameInput').value.trim();
+                if (username) {
+                    sendFriendRequest(username);
+                }
+            });
+        });
+
+        // Check if the user is authenticated
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/me');
+                if (!response.ok) {
+                    // If not authenticated, redirect to login
+                    window.location.href = "/login.html";
+                }
+            } catch (error) {
+                console.error('Authentication check failed:', error);
+                window.location.href = "/login.html";
+            }
+        }
+
+        // Load friend requests
+        async function loadFriendRequests() {
+            try {
+                const response = await fetch('/api/friends/requests');
+                if (!response.ok) {
+                    throw new Error('Failed to load friend requests');
+                }
+                const requests = await response.json();
+                
+                const requestsContainer = document.getElementById('friendRequests');
+                
+                if (requests.length === 0) {
+                    requestsContainer.innerHTML = '<div class="empty-list">No pending friend requests</div>';
+                    return;
+                }
+                
+                let html = '';
+                requests.forEach(request => {
+                    html += `
+                        <div class="friend-request">
+                            <div>
+                                <strong>${request.from.username}</strong> (ELO: ${request.from.elo})
+                            </div>
+                            <div class="friend-actions">
+                                <button onclick="respondToRequest(${request.requestId}, 'accept')" class="btn btn-accept">Accept</button>
+                                <button onclick="respondToRequest(${request.requestId}, 'reject')" class="btn btn-reject">Reject</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                requestsContainer.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading friend requests:', error);
+                showError('Could not load friend requests');
+            }
+        }
+
+        // Load friends list
+        async function loadFriends() {
+            try {
+                const response = await fetch('/api/friends');
+                if (!response.ok) {
+                    throw new Error('Failed to load friends');
+                }
+                const friends = await response.json();
+                
+                const friendsContainer = document.getElementById('friendsList');
+                
+                if (friends.length === 0) {
+                    friendsContainer.innerHTML = '<div class="empty-list">You don\'t have any friends yet</div>';
+                    return;
+                }
+                
+                let html = '';
+                friends.forEach(friend => {
+                    html += `
+                        <div class="friend-item">
+                            <div>
+                                <strong>${friend.username}</strong> (ELO: ${friend.elo})
+                            </div>
+                            <div class="friend-actions">
+                                <button onclick="initiateDuel(${friend.userId})" class="btn btn-duel">Duel</button>
+                                <button onclick="removeFriend(${friend.friendshipId})" class="btn btn-remove">Remove</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                friendsContainer.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading friends:', error);
+                showError('Could not load friends list');
+            }
+        }
+
+        // Send a friend request
+        async function sendFriendRequest(username) {
+            try {
+                const response = await fetch('/api/friends/request', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ targetUsername: username })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to send friend request');
+                }
+                
+                // Clear input and show success message
+                document.getElementById('usernameInput').value = '';
+                showSuccess('Friend request sent successfully');
+                
+            } catch (error) {
+                console.error('Error sending friend request:', error);
+                showError(error.message || 'Could not send friend request');
+            }
+        }
+
+        // Respond to a friend request
+        async function respondToRequest(requestId, action) {
+            try {
+                const response = await fetch('/api/friends/respond', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ requestId, action })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || `Failed to ${action} request`);
+                }
+                
+                // Refresh lists
+                loadFriendRequests();
+                if (action === 'accept') {
+                    loadFriends();
+                    showSuccess('Friend request accepted');
+                } else {
+                    showSuccess('Friend request rejected');
+                }
+                
+            } catch (error) {
+                console.error(`Error ${action}ing friend request:`, error);
+                showError(error.message || `Could not ${action} request`);
+            }
+        }
+
+        // Remove a friend
+        async function removeFriend(friendshipId) {
+            if (!confirm('Are you sure you want to remove this friend?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/friends/${friendshipId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to remove friend');
+                }
+                
+                showSuccess('Friend removed successfully');
+                loadFriends();
+                
+            } catch (error) {
+                console.error('Error removing friend:', error);
+                showError(error.message || 'Could not remove friend');
+            }
+        }
+
+        // Initiate a duel with a friend
+        async function initiateDuel(friendId) {
+            try {
+                const response = await fetch('/api/friends/duel', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ friendId })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to initiate duel');
+                }
+                
+                const result = await response.json();
+                
+                // Redirect to the game room
+                window.location.href = `/game-room.html?room=${result.roomId}`;
+                
+            } catch (error) {
+                console.error('Error initiating duel:', error);
+                showError(error.message || 'Could not initiate duel');
+            }
+        }
+
+        // Show error message
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.textContent = message;
+            errorContainer.style.display = 'block';
+            
+            // Hide after 5 seconds
+            setTimeout(() => {
+                errorContainer.style.display = 'none';
+            }, 5000);
+        }
+
+        // Show success message
+        function showSuccess(message) {
+            const successContainer = document.getElementById('successContainer');
+            successContainer.textContent = message;
+            successContainer.style.display = 'block';
+            
+            // Hide after 5 seconds
+            setTimeout(() => {
+                successContainer.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html> 

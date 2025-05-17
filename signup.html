@@ -5,12 +5,73 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="signup">注册 - 天下太平</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .social-login {
+            margin-top: 20px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .social-login:before {
+            content: "";
+            display: block;
+            height: 1px;
+            width: 100%;
+            background-color: #ddd;
+            position: absolute;
+            top: 50%;
+            z-index: 1;
+        }
+        
+        .social-login-text {
+            display: inline-block;
+            padding: 0 10px;
+            background-color: white;
+            position: relative;
+            z-index: 2;
+            color: #777;
+            font-size: 14px;
+        }
+        
+        .google-login-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 10px;
+            margin-top: 15px;
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .google-login-btn img {
+            width: 18px;
+            height: 18px;
+            margin-right: 10px;
+        }
+        
+        .google-login-btn:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .error-message {
+            color: #f44336;
+            margin: 10px 0;
+            text-align: center;
+            font-size: 14px;
+        }
+    </style>
 </head>
 <body>
     <div id="language-selector"></div>
     <div class="auth-form">
         <h2 data-i18n="signup">注册</h2>
         <div id="message" class="message"></div>
+        <div id="error-message" class="error-message"></div>
         <form id="signup-form">
             <div class="form-group">
                 <label for="username" data-i18n="username">用户名</label>
@@ -26,6 +87,16 @@
             </div>
             <button type="submit" data-i18n="signup">注册</button>
         </form>
+        
+        <div class="social-login">
+            <span class="social-login-text" data-i18n="or">或</span>
+        </div>
+        
+        <a href="/auth/google" class="google-login-btn">
+            <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg" alt="Google">
+            <span data-i18n="signup_with_google">使用谷歌账号注册</span>
+        </a>
+        
         <div class="form-footer">
             <p><span data-i18n="have_account">已有账号?</span> <a href="/login.html" data-i18n="login">登录</a></p>
             <p><a href="/" data-i18n="back_to_home">返回首页</a></p>
@@ -40,6 +111,14 @@
         document.addEventListener('DOMContentLoaded', () => {
             i18n.init();
             createLanguageSelector('language-selector');
+            
+            // Check for Google login errors in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const error = urlParams.get('error');
+            
+            if (error === 'google-login-failed') {
+                document.getElementById('error-message').textContent = i18n.translate('google_login_failed');
+            }
         });
         
         // Add translation for title

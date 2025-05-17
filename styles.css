@@ -4,7 +4,7 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
+    min-height: 100vh;
     margin: 0;
     background-color: #f3f3f3;
     background-image: 
@@ -14,6 +14,31 @@ body {
     background-position: center;
     background-repeat: no-repeat;
     background-attachment: fixed;
+    color: #333;
+    line-height: 1.5;
+    overflow-x: hidden;
+}
+
+/* Accessibility focus styles */
+:focus {
+    outline: 3px solid #4a69bd;
+    outline-offset: 2px;
+}
+
+/* Skip to content link for screen readers */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: #4a69bd;
+    color: white;
+    padding: 8px;
+    z-index: 9999;
+    transition: top 0.3s;
+}
+
+.skip-link:focus {
+    top: 0;
 }
 
 /* Language selector styles */
@@ -62,10 +87,12 @@ body {
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     cursor: pointer;
     transition: transform 0.3s ease;
-    margin-top: 20px;
+    margin: 20px;
+    max-width: 90vw;
 }
 
-.title-container:hover {
+.title-container:hover,
+.title-container:focus {
     transform: translateY(-5px);
     box-shadow: 0 6px 10px rgba(0, 0, 0, 0.15);
 }
@@ -105,13 +132,15 @@ h1 {
     margin: 0;
 }
 
-.site-title:hover {
+.site-title:hover,
+.site-title:focus {
     color: #666;
 }
 
 .auth-links {
     display: flex;
     gap: 1rem;
+    flex-wrap: wrap;
 }
 
 .auth-links a {
@@ -126,9 +155,11 @@ h1 {
     transition: all 0.3s ease;
 }
 
-.auth-links a:hover {
+.auth-links a:hover,
+.auth-links a:focus {
     background-color: #4a69bd;
     color: white;
+    text-decoration: none;
 }
 
 /* Room buttons styles */
@@ -137,6 +168,7 @@ h1 {
     justify-content: center;
     gap: 20px;
     margin-top: 30px;
+    flex-wrap: wrap;
 }
 
 .room-button {
@@ -150,9 +182,12 @@ h1 {
     cursor: pointer;
     transition: all 0.3s ease;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    min-width: 140px;
+    margin-bottom: 10px;
 }
 
-.room-button:hover {
+.room-button:hover,
+.room-button:focus {
     background-color: #3c58a8;
     transform: translateY(-3px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
@@ -163,7 +198,8 @@ h1 {
     color: #333;
 }
 
-.room-button.create:hover {
+.room-button.create:hover,
+.room-button.create:focus {
     background-color: #41d6af;
 }
 
@@ -172,7 +208,8 @@ h1 {
     color: #333;
 }
 
-.room-button.join:hover {
+.room-button.join:hover,
+.room-button.join:focus {
     background-color: #f0b74d;
 }
 
@@ -181,7 +218,8 @@ h1 {
     color: white;
 }
 
-.room-button.rejoin:hover {
+.room-button.rejoin:hover,
+.room-button.rejoin:focus {
     background-color: #2980b9;
 }
 
@@ -192,8 +230,8 @@ h1 {
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     padding: 2rem;
     max-width: 400px;
-    width: 100%;
-    margin-top: 70px;
+    width: 90%;
+    margin: 70px auto 20px;
 }
 
 .form-group {
@@ -208,7 +246,7 @@ label {
 
 input, select {
     width: 100%;
-    padding: 0.5rem;
+    padding: 0.75rem;
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 1rem;
@@ -218,10 +256,11 @@ button {
     background-color: #4a69bd;
     color: white;
     border: none;
-    padding: 0.5rem 1rem;
+    padding: 0.75rem 1rem;
     border-radius: 4px;
     cursor: pointer;
     font-size: 1rem;
+    min-height: 44px;
 }
 
 .auth-form button {
@@ -229,7 +268,8 @@ button {
     margin-top: 1rem;
 }
 
-button:hover {
+button:hover,
+button:focus {
     background-color: #3c58a8;
 }
 
@@ -245,8 +285,9 @@ button:hover {
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     padding: 2rem;
     max-width: 800px;
-    width: 100%;
-    margin-top: 70px;
+    width: 90%;
+    margin: 70px auto 20px;
+    overflow-x: auto;
 }
 
 .user-info {
@@ -299,7 +340,8 @@ button:hover {
     background-color: #ff7675;
 }
 
-.dashboard-actions button:hover {
+.dashboard-actions button:hover,
+.dashboard-actions button:focus {
     opacity: 0.9;
 }
 
@@ -338,7 +380,8 @@ button:hover {
     padding: 0.5rem 1rem;
 }
 
-.admin-nav button:hover {
+.admin-nav button:hover,
+.admin-nav button:focus {
     background-color: #3c58a8;
 }
 
@@ -468,7 +511,7 @@ button:hover {
 /* Responsive styles */
 @media (max-width: 768px) {
     h1 {
-        font-size: 3rem;
+        font-size: 2.5rem;
     }
     
     .admin-header {
@@ -534,7 +577,8 @@ button:hover {
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-.room-type-button:hover {
+.room-type-button:hover,
+.room-type-button:focus {
     background-color: #41d6af;
     transform: translateY(-3px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
@@ -551,7 +595,8 @@ button:hover {
     transition: color 0.3s ease;
 }
 
-.back-link a:hover {
+.back-link a:hover,
+.back-link a:focus {
     color: #3c58a8;
     text-decoration: underline;
 }
@@ -632,7 +677,8 @@ button:hover {
     transition: background-color 0.3s ease;
 }
 
-.join-button:hover {
+.join-button:hover,
+.join-button:focus {
     background-color: #f0b74d;
 }
 
@@ -698,7 +744,8 @@ button:hover {
     color: white;
 }
 
-.action-button.start:hover {
+.action-button.start:hover,
+.action-button.start:focus {
     background-color: #45a049;
 }
 
@@ -707,7 +754,8 @@ button:hover {
     color: white;
 }
 
-.action-button.leave:hover {
+.action-button.leave:hover,
+.action-button.leave:focus {
     background-color: #da190b;
 }
 
@@ -717,7 +765,8 @@ button:hover {
     margin: 10px 0;
 }
 
-.action-button.copy:hover {
+.action-button.copy:hover,
+.action-button.copy:focus {
     background-color: #1976D2;
 }
 
@@ -729,7 +778,7 @@ button:hover {
 /* Game container styles */
 #game-container {
     width: 100%;
-    height: calc(100vh - 140px); /* Account for header and padding */
+    height: calc(100vh - 140px);
     background-color: #f8f9fa;
     border-radius: 8px;
     overflow: hidden;
@@ -948,7 +997,8 @@ button:hover {
     transition: all 0.3s ease;
 }
 
-.unit-option:hover {
+.unit-option:hover,
+.unit-option:focus {
     background-color: rgba(255, 255, 255, 0.2);
     transform: translateY(-2px);
 }
@@ -1072,4 +1122,212 @@ button:hover {
   background: #e0e0e0;
   color: #444;
   border: 2px solid #888;
+}
+
+/* Mobile-specific styles */
+@media (max-width: 768px) {
+    h1 {
+        font-size: 2.5rem;
+    }
+
+    .header {
+        padding: 0.75rem 1rem;
+        flex-wrap: wrap;
+    }
+
+    .auth-links {
+        margin-top: 0.5rem;
+    }
+    
+    .auth-links a {
+        margin-left: 0.5rem;
+        padding: 0.4rem 0.8rem;
+        font-size: 0.9rem;
+    }
+    
+    input, select, button {
+        font-size: 16px;
+    }
+    
+    button, .room-button, .auth-links a, input[type="checkbox"], input[type="radio"] {
+        min-height: 44px;
+        min-width: 44px;
+    }
+}
+
+/* Tablet-specific styles */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .dashboard-container, .auth-form {
+        width: 85%;
+    }
+}
+
+/* High-DPI screens */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .user-avatar, .avatar img, .game-asset {
+        image-rendering: -webkit-optimize-contrast;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .auth-form, .dashboard-container, .title-container {
+        background-color: rgba(30, 30, 30, 0.9);
+        color: #f0f0f0;
+    }
+    
+    input, select {
+        background-color: #333;
+        border-color: #555;
+        color: #f0f0f0;
+    }
+    
+    .header {
+        background-color: rgba(30, 30, 30, 0.95);
+    }
+    
+    .site-title {
+        color: #f0f0f0;
+    }
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+    }
+}
+
+/* Accessibility improvements */
+/* High contrast mode */
+@media (forced-colors: active) {
+    button, a {
+        forced-color-adjust: none;
+    }
+}
+
+/* Better tooltip accessibility */
+[data-tooltip] {
+    position: relative;
+}
+
+[data-tooltip]:focus::before,
+[data-tooltip]:hover::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #333;
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+    z-index: 1000;
+    font-size: 14px;
+}
+
+/* Screen reader only text */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+/* Avoid blinking/flashing animations (accessibility) */
+@keyframes subtle-pulse {
+    0% { opacity: 0.9; }
+    50% { opacity: 1; }
+    100% { opacity: 0.9; }
+}
+
+/* Performance optimization for low-end devices */
+@supports (content-visibility: auto) {
+    .offscreen-content {
+        content-visibility: auto;
+        contain-intrinsic-size: 0 500px;
+    }
+}
+
+/* Improved touch feedback for mobile */
+@media (hover: none) and (pointer: coarse) {
+    button:active, .room-button:active, a:active {
+        transform: scale(0.97);
+        transition: transform 0.1s;
+    }
+}
+
+/* Reset margin/padding on small screens to maximize usable space */
+@media (max-width: 480px) {
+    .container, .section, .auth-form, .dashboard-container {
+        padding: 1rem;
+        margin: 60px auto 10px;
+    }
+}
+
+/* Improved loading states */
+.loading-indicator {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(74, 105, 189, 0.3);
+    border-radius: 50%;
+    border-top-color: #4a69bd;
+    animation: spin 1s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Game console inspired UI elements for a familiar gaming aesthetic */
+.console-ui {
+    font-family: 'Courier New', monospace;
+    border: 2px solid #30fc8b;
+    background-color: rgba(0, 30, 20, 0.8);
+    color: #30fc8b;
+    padding: 15px;
+    border-radius: 5px;
+    text-shadow: 0 0 5px rgba(48, 252, 139, 0.5);
+    box-shadow: 0 0 15px rgba(48, 252, 139, 0.3);
+}
+
+.battle-royale-ui {
+    border: 2px solid #ff9000;
+    background-color: rgba(50, 40, 10, 0.85);
+    color: #ffb143;
+    font-family: 'Impact', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.moba-scoreboard {
+    display: flex;
+    justify-content: space-between;
+    background-color: rgba(20, 20, 40, 0.9);
+    border-bottom: 3px solid #c0392b;
+    color: #ecf0f1;
+    padding: 10px 15px;
+    font-family: 'Arial', sans-serif;
+    font-weight: bold;
+}
+
+/* Improved image loading performance */
+img {
+    content-visibility: auto;
+}
+
+/* Add smooth scrolling for better UX */
+html {
+    scroll-behavior: smooth;
 }

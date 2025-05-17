@@ -471,7 +471,7 @@ io.on('connection', (socket) => {
                         playerInRoom.disconnected = false;
                         
                         // Join the socket.io room
-            socket.join(roomId);
+                        socket.join(roomId);
                         userRooms.set(socket.id, roomId);
                         
                         // Send current player list
@@ -510,8 +510,8 @@ io.on('connection', (socket) => {
                             
                             // Join the socket.io room
                             socket.join(roomId);
-            userRooms.set(socket.id, roomId);
-            
+                            userRooms.set(socket.id, roomId);
+                            
                             // Send current player list
                             io.to(roomId).emit('playerList', {
                                 players: room.players.filter(p => !p.disconnected).map(p => ({
@@ -659,7 +659,7 @@ io.on('connection', (socket) => {
                 if (activeUserSockets.get(userId).size === 0) {
                     activeUserSockets.delete(userId);
                     log(`Removed last socket for user ${userId}`, 'debug', 'CONNECTIONS');
-        } else {
+                } else {
                     log(`User ${userId} still has ${activeUserSockets.get(userId).size} active connections`, 'debug', 'CONNECTIONS');
                 }
             }
@@ -744,7 +744,7 @@ io.on('connection', (socket) => {
                 // Start abandon timer (shorter for repeat offenders)
                 const abandonDelay = disconnectInfo.warnings > 1 ? 30000 : 60000; // 30 seconds or 60 seconds
                 startAbandonTimer(roomId, playerIndex, abandonDelay);
-        } else {
+            } else {
                 // Start abandon timer
                 startAbandonTimer(roomId, playerIndex, 120000); // 2 minutes
             }
@@ -833,7 +833,7 @@ io.on('connection', (socket) => {
             }
             
             // Join the new room
-        socket.join(roomId);
+            socket.join(roomId);
             userRooms.set(socket.id, roomId);
             
             // Check if the room exists in our data structure
@@ -883,11 +883,11 @@ io.on('connection', (socket) => {
                     room.players[existingPlayerIndex].abandonTimer = null;
                     log(`Cleared abandon timer for player ${userId} in room ${roomId}`, 'info', 'GAME_EVENTS');
                 }
-        } else {
+            } else {
                 // Add player to the room
                 const isHost = room.players.length === 0;
-            room.players.push({ 
-                socketId: socket.id,
+                room.players.push({
+                    socketId: socket.id,
                     userId: userId,
                     username: username || (userId ? `User ${userId}` : `Guest ${socket.id.substr(0, 5)}`),
                     isHost,
@@ -1038,12 +1038,12 @@ io.on('connection', (socket) => {
     
     // Add handler for setting game mode
     socket.on('setGameMode', (data) => {
-            const roomId = userRooms.get(socket.id);
-            if (!roomId) {
-                socket.emit('error', { message: 'not_in_room' });
-                return;
-            }
-            
+        const roomId = userRooms.get(socket.id);
+        if (!roomId) {
+            socket.emit('error', { message: 'not_in_room' });
+            return;
+        }
+        
         const room = rooms.get(roomId);
         if (!room) {
             socket.emit('error', { message: 'room_not_found' });
@@ -1172,7 +1172,7 @@ io.on('connection', (socket) => {
         log(`Player ${player.username} (${socket.id}) set ready status to true in room ${roomId}`, 'info', 'PLAYER_READY');
         
         // Notify all players of the updated status
-                io.to(roomId).emit('playerList', {
+        io.to(roomId).emit('playerList', {
             players: room.players.filter(p => !p.disconnected).map(p => ({
                 socketId: p.socketId,
                 username: p.username,
@@ -1293,7 +1293,7 @@ io.on('connection', (socket) => {
                         
                         // Start mining income for all players
                         startMiningIncome(roomId, modeConfig.miningRate);
-        } else {
+                    } else {
                         log(`Cannot auto-start game: room ${roomId} no longer exists or game already started`, 'warn', 'GAME_EVENTS');
                     }
                     
@@ -1591,13 +1591,13 @@ io.on('connection', (socket) => {
         });
         
         log(`Player ${socket.id} spawned ${unitType} in room ${roomId}`, 'debug', 'GAME_EVENTS');
-        });
     });
+});
 
 // Function to start abandon timer for disconnected players
 function startAbandonTimer(roomId, playerIndex, delay) {
-        const room = rooms.get(roomId);
-        if (!room) return;
+    const room = rooms.get(roomId);
+    if (!room) return;
     
     // Clear any existing timer
     if (room.players[playerIndex].abandonTimer) {
@@ -1627,7 +1627,7 @@ function startAbandonTimer(roomId, playerIndex, delay) {
 
 // Function to abandon a game and apply penalties
 async function abandonGame(roomId, abandoningUserId) {
-        const room = rooms.get(roomId);
+    const room = rooms.get(roomId);
     if (!room || !room.Started) return;
     
     log(`Game in room ${roomId} abandoned by player ${abandoningUserId}`, 'warn', 'GAME_EVENTS');
@@ -1739,12 +1739,12 @@ async function abandonGame(roomId, abandoningUserId) {
 
 // Add this function to handle mining income for the room
 function startMiningIncome(roomId, miningRate) {
-        const room = rooms.get(roomId);
+    const room = rooms.get(roomId);
     if (!room || !room.Started) return;
     
     // Clear any existing interval
-        if (room.miningInterval) {
-            clearInterval(room.miningInterval);
+    if (room.miningInterval) {
+        clearInterval(room.miningInterval);
     }
     
     // Set up mining income interval
@@ -1777,8 +1777,8 @@ function startMiningIncome(roomId, miningRate) {
                 playerId: player.socketId,
                 gold: room.gameState.gold[player.socketId],
                 delta: totalIncome
-    });
-});
+            });
+        });
         
         // Send synchronized gold update to all players in the room (for UI)
     io.to(roomId).emit('goldSyncUpdate', {
@@ -3087,8 +3087,8 @@ app.post('/api/pairing/check-matches', isAuthenticated, async (req, res) => {
 });
 
 console.log('=========== SERVER INITIALIZATION STARTED ===========');
-    
-    httpServer.listen(PORT, () => {
+
+httpServer.listen(PORT, () => {
   console.log(`=========== SERVER STARTED ON PORT ${PORT} ===========`);
   log(`Server is running on http://localhost:${PORT}`, 'success');
   log(`Website "天下太平" is now available!`, 'success');
@@ -4194,40 +4194,6 @@ async function debugSocketConnections() {
   } catch (error) {
     log(`❌ Error debugging socket connections: ${error}`, 'error');
     return false;
-  }
-}
-
-// Handle roomJoined event - client side code
-// Add better debugging in game-room.html
-socket.on('roomCheckResult', (data) => {
-    console.log('Room check result:', data);
-    if (!data.exists) {
-        const reason = data.reason || data.error || 'Unknown reason';
-        console.error(`Room does not exist or has expired. Reason: ${reason}`);
-        alert(`Room does not exist or has expired. Reason: ${reason}`);
-        // Redirect to home page
-        window.location.href = '/';
-        return;
-    }
-    
-    // ... rest of existing code ...
-});
-
-// Load test room data if available
-try {
-  const testRoomPath = path.join(__dirname, 'test-room-data.json');
-  if (fs.existsSync(testRoomPath)) {
-    const testRoomData = JSON.parse(fs.readFileSync(testRoomPath, 'utf8'));
-    const { roomId, player1Id, player2Id, matchId } = testRoomData;
-    
-    log(`Loading test room ${roomId} from test-room-data.json`, 'info', 'STARTUP');
-    
-    // Create the room in memory
-    rooms.set(roomId, {
-      id: roomId,
-      players: [
-        { userId: player1Id, socketId: null, ready: false, isHost: true, username: 'TestUser' },
-        { userId: player2Id, socketId: null, ready: false, isHost: false, username: 'TestUser2' }
       ],
       gameMode: 'classic',
       Started: false,

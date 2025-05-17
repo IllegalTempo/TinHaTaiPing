@@ -385,8 +385,6 @@ io.on('connection', (socket) => {
                     });
                     log(`Room ${roomId} no longer exists, cleared lastRoom for user ${userId}`, 'info', 'CONNECTIONS');
                 }
-                
-                log(`Last room check for user ${userId}: roomId=${roomId}, exists=${rooms.has(roomId)}, isInRoom=${rooms.has(roomId) && rooms.get(roomId).players.some(p => p.userId === userId)}`);
             }
         }).catch(err => log(`Error checking for active rooms: ${err}`, 'error'));
     }
@@ -417,7 +415,6 @@ io.on('connection', (socket) => {
         try {
             const { roomId } = data;
             if (!roomId) {
-                log(`Client ${socket.id} sent empty roomId in checkRoom!`, 'error');
                 socket.emit('roomCheckResult', { exists: false, error: 'No room ID provided' });
                 return;
             }
@@ -426,80 +423,24 @@ io.on('connection', (socket) => {
             const exists = rooms.has(roomId);
             
             // First, just tell the client if the room exists
-            if (!exists) {
-                log(`Room ${roomId} does not exist - sending roomCheckResult with exists=false to client ${socket.id}`, 'warn');
-                socket.emit('roomCheckResult', { exists: false, reason: 'Room not found in server memory' });
-                
-                // If user has this roomId as lastRoom, clear it
-                if (socket.request?.session?.userId) {
-                    const userId = socket.request.session.userId;
-                    prisma.user.findUnique({
-                        where: { id: userId }
-                    }).then(userObj => {
-                        if (userObj && userObj.lastRoom === roomId) {
-                            log(`Room ${roomId} no longer exists, cleared lastRoom for user ${userId}`, 'info');
-                            prisma.user.update({
-                                where: { id: userId },
-                                data: { lastRoom: null }
-                            }).catch(err => log(`Error clearing lastRoom: ${err}`, 'error'));
-                        }
-                    }).catch(err => log(`Error checking user for lastRoom: ${err}`, 'error'));
-                }
-            } else {
-                log(`Room ${roomId} exists, notifying client ${socket.id}`, 'debug', 'SOCKET');
-                socket.emit('roomCheckResult', { exists: true });
-                
-                const room = rooms.get(roomId);
+            socket.emit('roomCheckResult', { exists });
+            
+            if (exists) {
+                log(`Room ${roomId} exists, notifying client`, 'debug', 'SOCKET');
                 
                 // If the user is authenticated, check if they should be in this room
                 if (socket.request?.session?.userId) {
                     const userId = socket.request.session.userId;
-                    const userObj = await prisma.user.findUnique({
+                    const user = await prisma.user.findUnique({
                         where: { id: userId }
                     });
                     
-                    log(`Authenticated user ${userId} checking room ${roomId}`, 'debug');
-                    
-                    // Find the player in the room
-                    let playerInRoom = room.players.find(p => p.userId === userId);
-                    
-                    if (playerInRoom) {
-                        log(`User ${userId} found as player in room ${roomId}, auto-joining socket`, 'info', 'ROOM_EVENTS');
-                        
-                        // Update player socket ID and connection status
-                        playerInRoom.socketId = socket.id;
-                        playerInRoom.disconnected = false;
-                        
-                        // Join the socket.io room
-            socket.join(roomId);
-                        userRooms.set(socket.id, roomId);
-                        
-                        // Send current player list
-                        io.to(roomId).emit('playerList', {
-                            players: room.players.filter(p => !p.disconnected).map(p => ({
-                                socketId: p.socketId,
-                                username: p.username,
-                                isHost: p.isHost,
-                                ready: p.ready
-                            })),
-                            gameMode: room.gameMode
-                        });
-                        
-                        // Notify the client that they've been auto-joined
-                        socket.emit('roomJoined', { 
-                            roomId,
-                            isHost: playerInRoom.isHost,
-                            autoJoined: true
-                        });
-                        
-                        log(`Auto-joined socket ${socket.id} to room ${roomId}`, 'info', 'ROOM_EVENTS');
-                        return; // Stop processing after successful auto-join
-                    }
-                    
                     // If this is the user's last room (from matchmaking)
-                    if (userObj && userObj.lastRoom === roomId) {
+                    if (user && user.lastRoom === roomId) {
+                        const room = rooms.get(roomId);
+                        
                         // Check if user is a player in this room
-                        let playerInRoom = room.players.find(p => p.userId === userId);
+                        const playerInRoom = room.players.find(p => p.userId === userId);
                         
                         if (playerInRoom) {
                             log(`User ${userId} found as player in room ${roomId}, auto-joining socket`, 'info', 'ROOM_EVENTS');
@@ -510,8 +451,8 @@ io.on('connection', (socket) => {
                             
                             // Join the socket.io room
                             socket.join(roomId);
-            userRooms.set(socket.id, roomId);
-            
+                            userRooms.set(socket.id, roomId);
+                            
                             // Send current player list
                             io.to(roomId).emit('playerList', {
                                 players: room.players.filter(p => !p.disconnected).map(p => ({
@@ -524,123 +465,53 @@ io.on('connection', (socket) => {
                             });
                             
                             // Notify the client that they've been auto-joined
-                            socket.emit('roomJoined', { 
+                            socket.emit('autoJoined', { 
                                 roomId,
-                                isHost: playerInRoom.isHost,
-                                autoJoined: true
+                                isHost: playerInRoom.isHost
                             });
                             
                             log(`Auto-joined socket ${socket.id} to room ${roomId}`, 'info', 'ROOM_EVENTS');
-                            return; // Stop processing after successful auto-join
-                        } else {
-                            // Look for a player entry without userId but matching the expected player position
-                            // This happens with matchmaking where we create room entries before sockets join
-                            if (room.matchId) {
-                                const match = await prisma.match.findUnique({
-                                    where: { id: room.matchId },
-                                    include: { player1: true, player2: true }
-                                });
-                                
-                                if (match) {
-                                    if (match.player1Id === userId || match.player2Id === userId) {
-                                        // Find player slot by position since we know this user should be in this match
-                                        const isPlayer1 = match.player1Id === userId;
-                                        const playerIndex = isPlayer1 ? 0 : 1;
-                                        
-                                        if (playerIndex < room.players.length) {
-                                            playerInRoom = room.players[playerIndex];
-                                            
-                                            // Update player with user data
-                                            playerInRoom.userId = userId;
-                                            // Use userObj which was previously retrieved in this function
-                                            playerInRoom.username = userObj.username;
-                                            playerInRoom.socketId = socket.id;
-                                            playerInRoom.disconnected = false;
-                                            
-                                            // Join the socket.io room
-                                            socket.join(roomId);
-                                            userRooms.set(socket.id, roomId);
-                                            
-                                            // Send current player list
-                                            io.to(roomId).emit('playerList', {
-                                                players: room.players.filter(p => !p.disconnected).map(p => ({
-                                                    socketId: p.socketId,
-                                                    username: p.username,
-                                                    isHost: p.isHost,
-                                                    ready: p.ready
-                                                })),
-                                                gameMode: room.gameMode
-                                            });
-                                            
-                                            // Notify the client that they've been auto-joined
-                                            socket.emit('roomJoined', { 
-                                                roomId,
-                                                isHost: playerInRoom.isHost,
-                                                autoJoined: true
-                                            });
-                                            
-                                            log(`Auto-joined socket ${socket.id} to match room ${roomId} as player ${playerIndex + 1}`, 'info', 'ROOM_EVENTS');
-                                            return; // Stop processing after successful auto-join
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
+                } else {
+                    // If user has this roomId as lastRoom, clear it
+                    if (socket.request?.session?.userId) {
+                        const userId = socket.request.session.userId;
+                        prisma.user.findUnique({
+                            where: { id: userId }
+                        }).then(user => {
+                            if (user && user.lastRoom === roomId) {
+                                log(`Clearing stale room reference ${roomId} for user ${userId}`, 'info');
+                                prisma.user.update({
+                                    where: { id: userId },
+                                    data: { lastRoom: null }
+                                }).catch(err => log(`Error clearing lastRoom: ${err}`, 'error'));
+                            }
+                        }).catch(err => log(`Error checking user for lastRoom: ${err}`, 'error'));
+                    }
                 }
+            } else {
+                log(`Room ${roomId} does not exist`, 'debug');
                 
-                // If we get here, no auto-join was performed
-                // NEW CODE: Try one more check - look for userId in any player in the room, even if not in the right index
+                // If user has this roomId as lastRoom, clear it
                 if (socket.request?.session?.userId) {
                     const userId = socket.request.session.userId;
-                    const userObj = await prisma.user.findUnique({
+                    prisma.user.findUnique({
                         where: { id: userId }
-                    });
-                    
-                    if (userObj && room && room.players) {
-                        for (let i = 0; i < room.players.length; i++) {
-                            // Check if this player slot is for this user but might be missing socket info
-                            if (room.players[i].userId === userId && (!room.players[i].socketId || room.players[i].disconnected)) {
-                                log(`Found player ${userId} in room ${roomId} at index ${i}, updating socket info`, 'info', 'ROOM_EVENTS');
-                                
-                                // Update player socket info
-                                room.players[i].socketId = socket.id;
-                                room.players[i].disconnected = false;
-                                
-                                // Add socket to room
-                                socket.join(roomId);
-                                userRooms.set(socket.id, roomId);
-                                
-                                // Send current player list
-                                io.to(roomId).emit('playerList', {
-                                    players: room.players.filter(p => !p.disconnected).map(p => ({
-                                        socketId: p.socketId,
-                                        username: p.username,
-                                        isHost: p.isHost,
-                                        ready: p.ready
-                                    })),
-                                    gameMode: room.gameMode
-                                });
-                                
-                                // Notify client they've been auto-joined
-                                socket.emit('roomJoined', { 
-                                    roomId,
-                                    isHost: room.players[i].isHost,
-                                    autoJoined: true
-                                });
-                                
-                                log(`Auto-joined socket ${socket.id} to room ${roomId} for user ${userId}`, 'info', 'ROOM_EVENTS');
-                                return; // Exit after successful join
-                            }
+                    }).then(user => {
+                        if (user && user.lastRoom === roomId) {
+                            log(`Clearing stale room reference ${roomId} for user ${userId}`, 'info');
+                            prisma.user.update({
+                                where: { id: userId },
+                                data: { lastRoom: null }
+                            }).catch(err => log(`Error clearing lastRoom: ${err}`, 'error'));
                         }
-                    }
+                    }).catch(err => log(`Error checking user for lastRoom: ${err}`, 'error'));
                 }
-                
-                log(`No auto-join performed for room ${roomId}, client will need to call joinRoom explicitly`, 'debug', 'ROOM_EVENTS');
             }
         } catch (error) {
             log(`Error checking room: ${error}`, 'error');
-            socket.emit('roomCheckResult', { exists: false, error: 'Server error', details: error.message });
+            socket.emit('roomCheckResult', { exists: false, error: 'Server error' });
         }
     });
     
@@ -659,7 +530,7 @@ io.on('connection', (socket) => {
                 if (activeUserSockets.get(userId).size === 0) {
                     activeUserSockets.delete(userId);
                     log(`Removed last socket for user ${userId}`, 'debug', 'CONNECTIONS');
-        } else {
+                } else {
                     log(`User ${userId} still has ${activeUserSockets.get(userId).size} active connections`, 'debug', 'CONNECTIONS');
                 }
             }
@@ -744,7 +615,7 @@ io.on('connection', (socket) => {
                 // Start abandon timer (shorter for repeat offenders)
                 const abandonDelay = disconnectInfo.warnings > 1 ? 30000 : 60000; // 30 seconds or 60 seconds
                 startAbandonTimer(roomId, playerIndex, abandonDelay);
-        } else {
+            } else {
                 // Start abandon timer
                 startAbandonTimer(roomId, playerIndex, 120000); // 2 minutes
             }
@@ -780,824 +651,93 @@ io.on('connection', (socket) => {
         }
     }
     
-    // Handle joining a room
-    socket.on('joinRoom', async (data) => {
-        try {
-            const { roomId, username } = data;
-            
-            // Validate input
-            if (!roomId) {
-                log(`Client ${socket.id} attempted to join a room without providing roomId`, 'error');
-                socket.emit('error', { message: 'Room ID is required' });
-                return;
-            }
-            
-            log(`Client ${socket.id} is attempting to join room ${roomId} as ${username || 'unknown'}`, 'info', 'ROOM_EVENTS');
-            
-            let userId = null;
-            
-            // Get user ID from session if authenticated
-            if (socket.request.session && socket.request.session.userId) {
-                userId = socket.request.session.userId;
+    // Handle user leaving a room
+    const roomId = userRooms.get(socket.id);
+    if (roomId) {
+        const room = rooms.get(roomId);
+        if (room) {
+            // Find the player
+            const playerIndex = room.players.findIndex(p => p.socketId === socket.id);
+            if (playerIndex !== -1) {
+                // Mark player as disconnected
+                room.players[playerIndex].disconnected = true;
+                room.players[playerIndex].socketId = null;
+                room.players[playerIndex].disconnectedAt = Date.now();
                 
-                const user = await prisma.user.findUnique({
-                    where: { id: userId }
-                });
-                
-                if (user) {
-                    // Update user's lastRoom
-                    await prisma.user.update({
-                        where: { id: userId },
-                        data: { lastRoom: roomId }
-                    });
-                    log(`Updated user ${userId} (${username || user.username}) lastRoom to ${roomId}`, 'debug', 'ROOM_EVENTS');
-                }
-            }
-            
-            // Check if already in a room - leave it first
-            const currentRoom = userRooms.get(socket.id);
-            if (currentRoom && currentRoom !== roomId) {
-                // Leave current room first
-                log(`Socket ${socket.id} leaving current room ${currentRoom} before joining ${roomId}`, 'debug', 'ROOM_EVENTS');
-                socket.leave(currentRoom);
-                
-                // Update player status in the old room if needed
-                const oldRoom = rooms.get(currentRoom);
-                if (oldRoom) {
-                    const playerInOldRoom = oldRoom.players.find(p => p.socketId === socket.id);
-                    if (playerInOldRoom) {
-                        playerInOldRoom.disconnected = true;
-                        playerInOldRoom.socketId = null;
+                // Increment user disconnect count if game has started
+                if (room.Started) {
+                    // Track consecutive disconnects
+                    if (!userDisconnects.has(userId)) {
+                        userDisconnects.set(userId, {
+                            count: 0,
+                            lastDisconnect: null,
+                            warnings: 0,
+                            tempBanUntil: null
+                        });
                     }
-                }
-            }
-            
-            // Join the new room
-        socket.join(roomId);
-            userRooms.set(socket.id, roomId);
-            
-            // Check if the room exists in our data structure
-            if (!rooms.has(roomId)) {
-                // Create a new room
-                log(`Creating new room ${roomId}`, 'info', 'ROOM_EVENTS');
-                rooms.set(roomId, {
-                    id: roomId,
-                    created: Date.now(),
-                    players: [],
-                    gameMode: 'classic',
-                    Started: false
-                });
-            }
-            
-            const room = rooms.get(roomId);
-            
-            // Check if player is already in the room (might be reconnecting)
-            const existingPlayerIndex = room.players.findIndex(p => p.userId === userId);
-            if (existingPlayerIndex !== -1) {
-                log(`Player ${userId} reconnecting to room ${roomId}`, 'info', 'ROOM_EVENTS');
-                
-                // Update player info
-                room.players[existingPlayerIndex].socketId = socket.id;
-                room.players[existingPlayerIndex].disconnected = false;
-                room.players[existingPlayerIndex].username = username || room.players[existingPlayerIndex].username;
-                
-                // Notify the client of successful join
-                socket.emit('roomJoined', {
-                    roomId,
-                    isHost: room.players[existingPlayerIndex].isHost
-                });
-                
-                // Reset disconnect count if this was a prompted reconnection
-                if (userDisconnects.has(userId)) {
+                    
                     const disconnectInfo = userDisconnects.get(userId);
-                    if (disconnectInfo.count < 5) { // Don't reset if they were temp banned
-                        disconnectInfo.count = 0;
-                        disconnectInfo.warnings = 0;
-                        log(`Reset disconnect count for user ${userId} after successful reconnection`, 'info', 'CONNECTIONS');
-                    }
-                }
-                
-                // Clear abandon timer if any
-                if (room.players[existingPlayerIndex].abandonTimer) {
-                    clearTimeout(room.players[existingPlayerIndex].abandonTimer);
-                    room.players[existingPlayerIndex].abandonTimer = null;
-                    log(`Cleared abandon timer for player ${userId} in room ${roomId}`, 'info', 'GAME_EVENTS');
-                }
-        } else {
-                // Add player to the room
-                const isHost = room.players.length === 0;
-            room.players.push({ 
-                socketId: socket.id,
-                    userId: userId,
-                    username: username || (userId ? `User ${userId}` : `Guest ${socket.id.substr(0, 5)}`),
-                    isHost,
-                    ready: false,
-                    disconnected: false
-                });
-                
-                log(`Added player ${userId || 'guest'} to room ${roomId}`, 'info', 'ROOM_EVENTS');
-                
-                // Notify the client of successful join
-                socket.emit('roomJoined', {
-                    roomId,
-                    isHost
-                });
-            }
-            
-            // Send current player list to all in room
-            io.to(roomId).emit('playerList', {
-                players: room.players.filter(p => !p.disconnected).map(p => ({
-                    socketId: p.socketId,
-                    username: p.username,
-                    isHost: p.isHost,
-                    ready: p.ready
-                })),
-                gameMode: room.gameMode
-            });
-            
-        } catch (error) {
-            log(`Error joining room: ${error}`, 'error');
-            socket.emit('error', { message: 'Server error when joining room' });
-        }
-    });
-    
-    // Handle unit movement updates from clients
-    socket.on('unitMove', (data) => {
-        const { unitId, x, y } = data;
-        const roomId = userRooms.get(socket.id);
-        if (!roomId) return;
-        
-        const room = rooms.get(roomId);
-        if (!room || !room.gameState) return;
-        
-        // Find the unit in server-side state
-        const unitIndex = room.serverGameState.units.findIndex(u => u.id === unitId);
-        if (unitIndex === -1) return;
-        
-        // Validate that this player owns the unit (anti-cheat)
-        const unit = room.serverGameState.units[unitIndex];
-        if (unit.playerId !== socket.id) {
-            log(`Rejected move - Player ${socket.id} tried to move unit owned by ${unit.playerId}`, 'warn');
-            return;
-        }
-            
-        // Get game mode config for movement speed limits
-        const gameMode = room.gameMode || 'classic';
-        const modeConfig = gameModes[gameMode] || gameModes.classic;
-        const unitStats = modeConfig.unitStats[unit.type] || {};
-        
-        // Check movement speed (basic anti-cheat)
-        const oldX = unit.x;
-        const oldY = unit.y;
-        const dx = x - oldX;
-        const dy = y - oldY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        
-        // Max allowed movement per update (could be refined further)
-        const maxSpeed = (unitStats.speed || 1) * 10;
-        
-        if (dist > maxSpeed) {
-            log(`Rejected move - Unit ${unitId} attempted to move too fast (${dist} > ${maxSpeed})`, 'warn');
-            
-            // Notify the client of the correct position
-            socket.emit('unitPositionCorrection', {
-                unitId,
-                x: oldX, 
-                y: oldY
-            });
-            return;
-        }
-        
-        // Update position in server state
-        room.serverGameState.units[unitIndex].x = x;
-        room.serverGameState.units[unitIndex].y = y;
-        
-        // Also update in game state
-        const gameUnitIndex = room.gameState.units.findIndex(u => u.id === unitId);
-        if (gameUnitIndex !== -1) {
-            room.gameState.units[gameUnitIndex].x = x;
-            room.gameState.units[gameUnitIndex].y = y;
-        }
-        
-        // Broadcast move to all clients
-        io.to(roomId).emit('unitMoved', { unitId, x, y });
-    });
-    
-    // Handle unit attack events
-    socket.on('unitAttack', (data) => {
-        const { attackerUnitId, targetUnitId, damage } = data;
-        const roomId = userRooms.get(socket.id);
-        if (!roomId) return;
-        
-        const room = rooms.get(roomId);
-        if (!room || !room.gameState) return;
-        
-        // Find both units in server state
-        const attacker = room.serverGameState.units.find(u => u.id === attackerUnitId);
-        const target = room.serverGameState.units.find(u => u.id === targetUnitId);
-        
-        if (!attacker || !target) return;
-        
-        // Validate that this player owns the attacking unit
-        if (attacker.playerId !== socket.id) {
-            log(`Rejected attack - Player ${socket.id} tried to use unit owned by ${attacker.playerId}`, 'warn');
-            return;
-        }
-        
-        // Server-side damage calculation based on unit stats
-        const gameMode = room.gameMode || 'classic';
-        const modeConfig = gameModes[gameMode] || gameModes.classic;
-        const unitStats = modeConfig.unitStats[attacker.type] || {};
-        
-        // Use server-side damage value instead of client value
-        const serverDamage = unitStats.damage || 10;
-        
-        // Apply damage to target unit
-        target.health -= serverDamage;
-        
-        // Check if unit is destroyed
-        if (target.health <= 0) {
-            // Remove unit from server state
-            room.serverGameState.units = room.serverGameState.units.filter(u => u.id !== targetUnitId);
-            // Also remove from game state
-            room.gameState.units = room.gameState.units.filter(u => u.id !== targetUnitId);
-            
-            // Broadcast unit destruction
-            io.to(roomId).emit('unitDestroyed', { unitId: targetUnitId });
-            log(`Unit ${targetUnitId} destroyed by ${attackerUnitId}`, 'debug');
-        } else {
-            // Broadcast damage
-            io.to(roomId).emit('unitDamaged', { 
-                unitId: targetUnitId, 
-                health: target.health,
-                damageAmount: serverDamage,
-                attackerId: attackerUnitId
-            });
-        }
-    });
-    
-    // Add handler for setting game mode
-    socket.on('setGameMode', (data) => {
-            const roomId = userRooms.get(socket.id);
-            if (!roomId) {
-                socket.emit('error', { message: 'not_in_room' });
-                return;
-            }
-            
-        const room = rooms.get(roomId);
-        if (!room) {
-            socket.emit('error', { message: 'room_not_found' });
-            return;
-        }
-        
-        // Check if sender is the host
-        const player = room.players.find(p => p.socketId === socket.id);
-        if (!player || !player.isHost) {
-            socket.emit('error', { message: 'only_host_can_change_mode' });
-            return;
-        }
-        
-        // Check if game already started
-        if (room.Started) {
-            socket.emit('error', { message: 'cannot_change_mode_after_start' });
-            return;
-        }
-        
-        // Update game mode
-        const newMode = data.mode || 'classic';
-        room.gameMode = newMode;
-        
-        // Notify all players in the room
-        io.to(roomId).emit('gameModeChanged', { gameMode: newMode });
-        
-        log(`Game mode changed to ${newMode} in room ${roomId}`, 'info');
-    });
-    
-    // Handle ready status
-    socket.on('toggleReady', () => {
-        const roomId = userRooms.get(socket.id);
-        if (!roomId) {
-            log(`Socket ${socket.id} tried to toggle ready status but is not in a room`, 'error');
-            
-            // Check if user is authenticated and has a lastRoom
-            if (socket.request?.session?.userId) {
-                const userId = socket.request.session.userId;
-                
-                // Try to find any rooms this user should be in
-                for (const [rid, room] of rooms.entries()) {
-                    const playerInRoom = room.players.find(p => p.userId === userId);
-                    if (playerInRoom) {
-                        log(`Found room ${rid} where user ${userId} should be. Auto-joining socket to room.`, 'info', 'ROOM_EVENTS');
-                        
-                        // Update player info
-                        playerInRoom.socketId = socket.id;
-                        playerInRoom.disconnected = false;
-                        
-                        // Join socket to room
-                        socket.join(rid);
-                        userRooms.set(socket.id, rid);
-                        
-                        // Force retry of the toggleReady after fixing the room association
-                        setTimeout(() => {
-                            log(`Retrying toggleReady for socket ${socket.id} after auto-join to room ${rid}`, 'info');
-                            socket.emit('retryReady', {});
-                        }, 500);
-                        
-                        return;
-                    }
-                }
-            }
-            
-            socket.emit('error', { message: 'not_in_room' });
-            return;
-        }
-        
-        const room = rooms.get(roomId);
-        if (!room) {
-            log(`Socket ${socket.id} tried to toggle ready in room ${roomId}, but room doesn't exist`, 'error');
-            socket.emit('error', { message: 'room_not_found' });
-            
-            // Clean up inconsistent state
-            userRooms.delete(socket.id);
-            return;
-        }
-        
-        // Find player in the room
-        const player = room.players.find(p => p.socketId === socket.id);
-        if (!player) {
-            log(`Socket ${socket.id} not found in room ${roomId} players list`, 'error');
-            
-            // Check if user is authenticated and try to find their player entry by userId
-            if (socket.request?.session?.userId) {
-                const userId = socket.request.session.userId;
-                const playerByUserId = room.players.find(p => p.userId === userId);
-                
-                if (playerByUserId) {
-                    log(`Found player by userId ${userId} in room ${roomId}, updating socket reference`, 'info');
+                    disconnectInfo.count += 1;
+                    disconnectInfo.lastDisconnect = Date.now();
                     
-                    // Update player info
-                    playerByUserId.socketId = socket.id;
-                    playerByUserId.disconnected = false;
+                    log(`Player ${userId} disconnected from active game. Consecutive disconnects: ${disconnectInfo.count}`, 'warn', 'CONNECTIONS');
                     
-                    // Force retry of the toggleReady after fixing the player association
-                    setTimeout(() => {
-                        log(`Retrying toggleReady for socket ${socket.id} after fixing player reference`, 'info');
-                        socket.emit('retryReady', {});
-                    }, 500);
-                    
-                    return;
-                }
-            }
-            
-            socket.emit('error', { message: 'player_not_found' });
-            return;
-        }
-        
-        // Don't allow toggling ready state if game has started
-        if (room.Started) {
-            log(`Socket ${socket.id} tried to toggle ready, but game in room ${roomId} already started`, 'warn');
-            socket.emit('error', { message: 'game_already_started' });
-            return;
-        }
-        
-        // Don't allow un-readying - only allow setting to ready if not already ready
-        if (player.ready) {
-            log(`Socket ${socket.id} tried to toggle ready, but already ready`, 'debug');
-            socket.emit('error', { message: 'ready_locked' });
-            return;
-        }
-        
-        // Set ready status to true (one-way toggle)
-        player.ready = true;
-        log(`Player ${player.username} (${socket.id}) set ready status to true in room ${roomId}`, 'info', 'PLAYER_READY');
-        
-        // Notify all players of the updated status
-                io.to(roomId).emit('playerList', {
-            players: room.players.filter(p => !p.disconnected).map(p => ({
-                socketId: p.socketId,
-                username: p.username,
-                isHost: p.isHost,
-                ready: p.ready
-            })),
-            gameMode: room.gameMode
-        });
-        
-        // Check if all players are ready
-        const allPlayersInRoom = room.players.filter(p => !p.disconnected);
-        const allPlayersReady = allPlayersInRoom.every(p => p.ready || p.isHost);
-        const hasEnoughPlayers = allPlayersInRoom.length >= 2;
-        
-        const allReady = hasEnoughPlayers && allPlayersReady;
-        
-        log(`Room ${roomId} ready check: players=${allPlayersInRoom.length}, allReady=${allPlayersReady}, hasEnoughPlayers=${hasEnoughPlayers}, startingGame=${allReady}`, 'info', 'PLAYER_READY');
-        
-        io.to(roomId).emit('allPlayersReady', { 
-            ready: allReady,
-            readyCount: room.players.filter(p => !p.disconnected && p.ready).length,
-            totalCount: allPlayersInRoom.length
-        });
-        
-        // If all players are ready, automatically start the game after a short delay
-        if (allReady) {
-            log(`All players ready in room ${roomId}, starting game automatically in 3 seconds`, 'info', 'GAME_EVENTS');
-            
-            // Notify all players that the game is about to start
-            io.to(roomId).emit('allPlayersReady', { 
-                ready: true,
-                readyCount: room.players.filter(p => !p.disconnected && p.ready).length,
-                totalCount: allPlayersInRoom.length,
-                autoStarting: true
-            });
-            
-            // Set a timer to start the game automatically
-            if (!room.autoStartTimer) {
-                const countdownStart = 3; // 3 second countdown
-                let countdown = countdownStart;
-                
-                // Send initial countdown notification
-                io.to(roomId).emit('autoStartCountdown', { seconds: countdown });
-                log(`Sent initial countdown (${countdown}) to room ${roomId}`, 'debug', 'GAME_EVENTS');
-                
-                // Create countdown interval
-                room.countdownInterval = setInterval(() => {
-                    countdown--;
-                    
-                    // Send countdown update to all players
-                    io.to(roomId).emit('autoStartCountdown', { seconds: countdown });
-                    log(`Sent countdown update (${countdown}) to room ${roomId}`, 'debug', 'GAME_EVENTS');
-                    
-                    // When countdown reaches 0, clear the interval
-                    if (countdown <= 0) {
-                        clearInterval(room.countdownInterval);
-                        room.countdownInterval = null;
-                        log(`Countdown finished for room ${roomId}`, 'debug', 'GAME_EVENTS');
-                    }
-                }, 1000);
-                
-                room.autoStartTimer = setTimeout(() => {
-                    // Check if the room still exists and the game hasn't started yet
-                    if (rooms.has(roomId) && !room.Started) {
-                        log(`Auto-starting game in room ${roomId}`, 'info', 'GAME_EVENTS');
+                    // Handle disconnect thresholds
+                    if (disconnectInfo.count >= 5) {
+                        // Apply temporary ban - 30 minutes
+                        const banDuration = 30 * 60 * 1000; // 30 minutes in milliseconds
+                        disconnectInfo.tempBanUntil = Date.now() + banDuration;
                         
-                        // Initialize game state with mode-specific settings
-                        const gameMode = room.gameMode || 'classic';
-                        const modeConfig = gameModes[gameMode] || gameModes.classic;
-                        
-                        room.Started = true;
-                        room.gameState = {
-                            started: true,
-                            mode: gameMode,
-                            gold: {},
-                            units: [],
-                            hp: {}
-                        };
-                        
-                        // Initialize players with mode-specific starting gold
-                        room.players.forEach(player => {
-                            if (!player.disconnected) {
-                                room.gameState.gold[player.socketId] = modeConfig.initialGold;
-                                room.gameState.hp[player.socketId] = 100; // Starting HP
+                        // Store ban status in database
+                        prisma.user.update({
+                            where: { id: userId },
+                            data: { 
+                                banStatus: "TEMP_BANNED",
+                                banExpiration: new Date(disconnectInfo.tempBanUntil)
                             }
-                        });
+                        }).catch(err => log(`Error updating user ban status: ${err}`, 'error'));
                         
-                        // Copy relevant info to server game state for anti-cheat verification
-                        room.serverGameState = {
-                            started: true,
-                            gold: { ...room.gameState.gold },
-                            units: [],
-                            hp: { ...room.gameState.hp },
-                            lastUpdateTime: Date.now(),
-                            modeConfig: modeConfig
-                        };
+                        log(`Player ${userId} has been temporarily banned for 30 minutes due to excessive disconnections`, 'warn', 'CONNECTIONS');
                         
-                        // Notify all players that the game has started
-                        io.to(roomId).emit('gameStarted', {
-                            gameState: room.gameState,
-                            modeConfig: {
-                                name: modeConfig.name,
-                                description: modeConfig.description,
-                                initialGold: modeConfig.initialGold,
-                                miningRate: modeConfig.miningRate,
-                                unitStats: modeConfig.unitStats
-                            },
-                            players: room.players.filter(p => !p.disconnected).map(p => ({
-                                id: p.socketId,
-                                username: p.username,
-                                isHost: p.isHost,
-                                gold: room.gameState.gold[p.socketId],
-                                hp: room.gameState.hp[p.socketId]
-                            }))
-                        });
+                        // Force game abandonment
+                        abandonGame(roomId, userId);
+                    } else if (disconnectInfo.count >= 3) {
+                        // Issue warning
+                        disconnectInfo.warnings += 1;
+                        log(`WARNING: Player ${userId} has disconnected ${disconnectInfo.count} times. Further disconnects will result in a temporary ban.`, 'warn', 'CONNECTIONS');
                         
-                        log(`Game auto-started in room ${roomId} with ${room.players.filter(p => !p.disconnected).length} players`, 'success', 'GAME_EVENTS');
-                        
-                        // Start mining income for all players
-                        startMiningIncome(roomId, modeConfig.miningRate);
-        } else {
-                        log(`Cannot auto-start game: room ${roomId} no longer exists or game already started`, 'warn', 'GAME_EVENTS');
+                        // Start abandon timer (shorter for repeat offenders)
+                        const abandonDelay = disconnectInfo.warnings > 1 ? 30000 : 60000; // 30 seconds or 60 seconds
+                        startAbandonTimer(roomId, playerIndex, abandonDelay);
+                    } else {
+                        // Start abandon timer
+                        startAbandonTimer(roomId, playerIndex, 120000); // 2 minutes
                     }
-                    
-                    // Clear the timer reference
-                    if (room) {
-                        room.autoStartTimer = null;
-                        
-                        // Also clear countdown interval if it exists
-                        if (room.countdownInterval) {
-                            clearInterval(room.countdownInterval);
-                            room.countdownInterval = null;
-                        }
-                    }
-                }, 3000); // 3 second delay before auto-start
-            }
-        }
-    });
-    
-    // Handle game start request
-    socket.on('startGame', () => {
-        const roomId = userRooms.get(socket.id);
-        if (!roomId) {
-            socket.emit('error', { message: 'not_in_room' });
-            return;
-        }
-        
-        const room = rooms.get(roomId);
-        if (!room) {
-            socket.emit('error', { message: 'room_not_found' });
-            return;
-        }
-        
-        // Check if sender is the host
-        const player = room.players.find(p => p.socketId === socket.id);
-        if (!player || !player.isHost) {
-            socket.emit('error', { message: 'only_host_can_start_game' });
-            return;
-        }
-        
-        // Check if the game has already started
-        if (room.Started) {
-            socket.emit('error', { message: 'game_already_started' });
-            return;
-        }
-        
-        // Check if we have enough players (at least 2)
-        if (room.players.filter(p => !p.disconnected).length < 2) {
-            socket.emit('error', { message: 'need_at_least_two_players' });
-            return;
-        }
-        
-        // Check if all players are ready
-        const allReady = room.players.filter(p => !p.disconnected).every(p => p.ready || p.isHost);
-        if (!allReady) {
-            socket.emit('error', { message: 'not_all_players_ready' });
-            return;
-        }
-        
-        // Get game mode configuration
-        const gameMode = room.gameMode || 'classic';
-        const modeConfig = gameModes[gameMode] || gameModes.classic;
-        
-        log(`Starting game in room ${roomId} with mode: ${gameMode}`, 'info', 'GAME_EVENTS');
-        
-        // Initialize game state with mode-specific settings
-        room.Started = true;
-        room.gameState = {
-            started: true,
-            mode: gameMode,
-            gold: {},
-            units: [],
-            hp: {}
-        };
-        
-        // Initialize players with mode-specific starting gold
-        room.players.forEach(player => {
-            if (!player.disconnected) {
-                room.gameState.gold[player.socketId] = modeConfig.initialGold;
-                room.gameState.hp[player.socketId] = 100; // Starting HP
-            }
-        });
-        
-        // Copy relevant info to server game state for anti-cheat verification
-        room.serverGameState = {
-            started: true,
-            gold: { ...room.gameState.gold },
-            units: [],
-            hp: { ...room.gameState.hp },
-            lastUpdateTime: Date.now(),
-            modeConfig: modeConfig
-        };
-        
-        // Notify all players that the game has started
-        io.to(roomId).emit('gameStarted', {
-            gameState: room.gameState,
-            modeConfig: {
-                name: modeConfig.name,
-                description: modeConfig.description,
-                initialGold: modeConfig.initialGold,
-                miningRate: modeConfig.miningRate,
-                unitStats: modeConfig.unitStats
-            },
-            players: room.players.filter(p => !p.disconnected).map(p => ({
-                id: p.socketId,
-                username: p.username,
-                isHost: p.isHost,
-                gold: room.gameState.gold[p.socketId],
-                hp: room.gameState.hp[p.socketId]
-            }))
-        });
-        
-        log(`Game started in room ${roomId} with ${room.players.filter(p => !p.disconnected).length} players`, 'success', 'GAME_EVENTS');
-        
-        // Start mining income for all players
-        startMiningIncome(roomId, modeConfig.miningRate);
-    });
-    
-    // Handle game end and ELO updates
-    socket.on('gameCompleted', async (data) => {
-        const roomId = userRooms.get(socket.id);
-        if (!roomId) {
-            socket.emit('error', { message: 'not_in_room' });
-            return;
-        }
-        
-        const room = rooms.get(roomId);
-        if (!room) {
-            socket.emit('error', { message: 'room_not_found' });
-            return;
-        }
-        
-        // Validate the winner is in this room
-        const { winnerId } = data;
-        const winnerPlayer = room.players.find(p => p.userId === parseInt(winnerId));
-        
-        if (!winnerPlayer) {
-            log(`Invalid winner ID ${winnerId} for room ${roomId}`, 'error');
-            socket.emit('error', { message: 'invalid_winner' });
-            return;
-        }
-        
-        // Get match ID from room
-        const matchId = room.matchId;
-        if (!matchId) {
-            log(`No match ID found for room ${roomId}`, 'error');
-            socket.emit('error', { message: 'match_not_found' });
-            return;
-        }
-        
-        log(`Game completed in room ${roomId}, winner: ${winnerPlayer.username} (${winnerId})`, 'info', 'GAME_EVENTS');
-        
-        // Update ELO ratings
-        const eloResult = await updateEloRatings(matchId, parseInt(winnerId));
-        
-        if (!eloResult) {
-            log(`Failed to update ELO ratings for match ${matchId}`, 'error');
-            socket.emit('error', { message: 'elo_update_failed' });
-            return;
-        }
-        
-        // Notify all players in the room about the game results and ELO changes
-        io.to(roomId).emit('gameResults', {
-            winner: eloResult.winner,
-            loser: eloResult.loser,
-            matchId: matchId
-        });
-        
-        log(`Game results sent to room ${roomId}`, 'debug', 'GAME_EVENTS');
-        
-        // Reset disconnect count for players who completed the game normally
-        for (const player of room.players) {
-            if (player.userId && userDisconnects.has(player.userId)) {
-                const disconnectInfo = userDisconnects.get(player.userId);
-                
-                // Only reset if they have fewer than 5 disconnects (not banned)
-                if (disconnectInfo.count < 5) {
-                    log(`Resetting disconnect count for player ${player.userId} after normal game completion`, 'debug');
-                    disconnectInfo.count = 0;
-                    disconnectInfo.warnings = 0;
-                    
-                    // Update in database as well
-                    prisma.user.update({
-                        where: { id: player.userId },
-                        data: { 
-                            disconnectCount: 0,
-                            lastDisconnectAt: null
-                        }
-                    }).catch(err => log(`Error updating user disconnect count: ${err}`, 'error'));
                 }
+                
+                // Notify other players in the room
+                socket.to(roomId).emit('playerList', {
+                    players: room.players.filter(p => !p.disconnected || p.socketId === socket.id)
+                });
+                
+                // Notify about the disconnection
+                socket.to(roomId).emit('playerDisconnected', {
+                    username: room.players[playerIndex].username,
+                    userId: room.players[playerIndex].userId,
+                    isHost: room.players[playerIndex].isHost,
+                    disconnectCount: userDisconnects.has(userId) ? userDisconnects.get(userId).count : 1
+                });
+                
+                log(`Player ${socket.id} disconnected from room ${roomId}`, 'info', 'CONNECTIONS');
             }
         }
-        
-        // Mark the room as completed
-        room.completed = true;
-        
-        // Schedule room cleanup after a delay to allow players to see results
-        setTimeout(() => {
-            if (rooms.has(roomId)) {
-                log(`Cleaning up completed room ${roomId}`, 'debug', 'ROOM_EVENTS');
-                rooms.delete(roomId);
-            }
-        }, 300000); // 5 minutes
-    });
-    
-    // Handle game mode info request
-    socket.on('getGameModes', () => {
-        // Send all available game modes to the client
-        const modeInfo = Object.keys(gameModes).map(key => ({
-            id: key,
-            name: gameModes[key].name,
-            description: gameModes[key].description,
-            initialGold: gameModes[key].initialGold,
-            miningRate: gameModes[key].miningRate,
-            availableUnits: Object.keys(gameModes[key].unitStats)
-        }));
-        
-        socket.emit('gameModeList', { modes: modeInfo });
-        log(`Sent game mode info to client ${socket.id}`, 'debug');
-    });
-    
-    // Handle unit spawning
-    socket.on('spawnUnit', (data) => {
-        const roomId = userRooms.get(socket.id);
-        if (!roomId) {
-            socket.emit('error', { message: 'not_in_room' });
-            return;
-        }
-        
-        const room = rooms.get(roomId);
-        if (!room || !room.Started) {
-            socket.emit('error', { message: 'game_not_started' });
-            return;
-        }
-        
-        // Validate unit type
-        const unitType = data.unitType;
-        if (!unitType) {
-            socket.emit('error', { message: 'invalid_unit_type' });
-            return;
-        }
-        
-        // Get game mode config
-        const gameMode = room.gameMode || 'classic';
-        const modeConfig = gameModes[gameMode] || gameModes.classic;
-        
-        // Check if unit type is valid for this game mode
-        if (!modeConfig.unitStats[unitType]) {
-            socket.emit('error', { message: 'unit_not_available_in_mode' });
-                return;
-        }
-        
-        // Get unit cost from mode config
-        const unitStats = modeConfig.unitStats[unitType];
-        const cost = unitStats.cost;
-        
-        // Check if player has enough gold
-        const currentGold = room.serverGameState.gold[socket.id] || 0;
-        if (currentGold < cost) {
-            socket.emit('error', { message: 'not_enough_gold' });
-            return;
-        }
-        
-        // Create unit with mode-specific stats
-        const unitId = `${unitType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const isLeftPlayer = room.players.findIndex(p => p.socketId === socket.id) === 0;
-        
-        const unitData = {
-            id: unitId,
-            type: unitType,
-            playerId: socket.id,
-            x: data.x || (isLeftPlayer ? 100 : 900),
-            y: data.y || 300,
-            health: unitStats.health || 100,
-            damage: unitStats.damage,
-            speed: unitStats.speed,
-            isLeftPlayer
-        };
-        
-        // Deduct gold from player
-        room.gameState.gold[socket.id] -= cost;
-        room.serverGameState.gold[socket.id] -= cost;
-        
-        // Add unit to game state
-        room.gameState.units.push(unitData);
-        room.serverGameState.units.push(unitData);
-        
-        // Notify all players about the new unit
-        io.to(roomId).emit('unitSpawned', unitData);
-        
-        // Update player's gold
-        socket.emit('goldUpdate', {
-            playerId: socket.id,
-            gold: room.gameState.gold[socket.id],
-            delta: -cost
-        });
-        
-        log(`Player ${socket.id} spawned ${unitType} in room ${roomId}`, 'debug', 'GAME_EVENTS');
-        });
-    });
+    }
+});
 
 // Function to start abandon timer for disconnected players
 function startAbandonTimer(roomId, playerIndex, delay) {
-        const room = rooms.get(roomId);
-        if (!room) return;
+    const room = rooms.get(roomId);
+    if (!room) return;
     
     // Clear any existing timer
     if (room.players[playerIndex].abandonTimer) {
@@ -1627,7 +767,7 @@ function startAbandonTimer(roomId, playerIndex, delay) {
 
 // Function to abandon a game and apply penalties
 async function abandonGame(roomId, abandoningUserId) {
-        const room = rooms.get(roomId);
+    const room = rooms.get(roomId);
     if (!room || !room.Started) return;
     
     log(`Game in room ${roomId} abandoned by player ${abandoningUserId}`, 'warn', 'GAME_EVENTS');
@@ -1737,14 +877,663 @@ async function abandonGame(roomId, abandoningUserId) {
     }
 }
 
+// Handle joining a room
+socket.on('joinRoom', async (data) => {
+    try {
+        const { roomId, username } = data;
+        
+        // Validate input
+        if (!roomId) {
+            log(`Client ${socket.id} attempted to join a room without providing roomId`, 'error');
+            socket.emit('error', { message: 'Room ID is required' });
+            return;
+        }
+        
+        log(`Client ${socket.id} is attempting to join room ${roomId} as ${username || 'unknown'}`, 'info', 'ROOM_EVENTS');
+        
+        let userId = null;
+        
+        // Get user ID from session if authenticated
+        if (socket.request.session && socket.request.session.userId) {
+            userId = socket.request.session.userId;
+            
+            const user = await prisma.user.findUnique({
+                where: { id: userId }
+            });
+            
+            if (user) {
+                // Update user's lastRoom
+                await prisma.user.update({
+                    where: { id: userId },
+                    data: { lastRoom: roomId }
+                });
+                log(`Updated user ${userId} (${username || user.username}) lastRoom to ${roomId}`, 'debug', 'ROOM_EVENTS');
+            }
+        }
+        
+        // Check if already in a room - leave it first
+        const currentRoom = userRooms.get(socket.id);
+        if (currentRoom && currentRoom !== roomId) {
+            // Leave current room first
+            log(`Socket ${socket.id} leaving current room ${currentRoom} before joining ${roomId}`, 'debug', 'ROOM_EVENTS');
+            socket.leave(currentRoom);
+            
+            // Update player status in the old room if needed
+            const oldRoom = rooms.get(currentRoom);
+            if (oldRoom) {
+                const playerInOldRoom = oldRoom.players.find(p => p.socketId === socket.id);
+                if (playerInOldRoom) {
+                    playerInOldRoom.disconnected = true;
+                    playerInOldRoom.socketId = null;
+                    
+                    // Notify others in old room
+                    socket.to(currentRoom).emit('playerList', {
+                        players: oldRoom.players.filter(p => !p.disconnected).map(p => ({
+                            socketId: p.socketId,
+                            username: p.username,
+                            isHost: p.isHost,
+                            ready: p.ready
+                        }))
+                    });
+                }
+            }
+        }
+        
+        // Check if room exists
+        let room = rooms.get(roomId);
+        
+        // If room doesn't exist, create it
+        if (!room) {
+            room = {
+                id: roomId,
+                players: [],
+                Started: false,
+                gameMode: 'classic',
+                gameState: null,
+                serverGameState: null
+            };
+            rooms.set(roomId, room);
+            log(`Created new room ${roomId}`, 'info', 'ROOM_EVENTS');
+        }
+        
+        // If game already started, handle differently
+        if (room.Started) {
+            log(`Room ${roomId} game already started, checking if player can rejoin`, 'debug', 'ROOM_EVENTS');
+            
+            // Check if user is a player in this room
+            const existingPlayer = room.players.find(p => p.userId === userId);
+            
+            if (!existingPlayer) {
+                log(`User ${userId} tried to join room ${roomId} but is not a player`, 'warn', 'ROOM_EVENTS');
+                socket.emit('error', { message: 'Cannot join a started game you are not part of' });
+                return;
+            }
+            
+            // Allow player to rejoin
+            log(`Player ${userId} (${username || existingPlayer.username}) rejoining room ${roomId}`, 'info', 'ROOM_EVENTS');
+            
+            // Update player info
+            existingPlayer.socketId = socket.id;
+            existingPlayer.disconnected = false;
+            
+            // Add socket to room
+            socket.join(roomId);
+            userRooms.set(socket.id, roomId);
+            
+            // Send current game state
+            socket.emit('gameState', room.gameState);
+            
+            // Notify other players
+            socket.to(roomId).emit('playerRejoined', {
+                playerId: socket.id,
+                username: existingPlayer.username
+            });
+            
+            // Send current player list
+            io.to(roomId).emit('playerList', {
+                players: room.players.filter(p => !p.disconnected).map(p => ({
+                    socketId: p.socketId,
+                    username: p.username,
+                    isHost: p.isHost,
+                    ready: p.ready
+                })),
+                gameMode: room.gameMode
+            });
+            
+            log(`Player ${socket.id} rejoined room ${roomId}`, 'info', 'ROOM_EVENTS');
+            return;
+        }
+        
+        // Check if the user is already in this room with another socket
+        if (userId) {
+            const existingPlayer = room.players.find(p => p.userId === userId);
+            
+            if (existingPlayer) {
+                log(`User ${userId} already in room ${roomId} with socket ${existingPlayer.socketId}`, 'debug', 'ROOM_EVENTS');
+                
+                // Update existing player record with new socket ID
+                existingPlayer.socketId = socket.id;
+                existingPlayer.disconnected = false;
+                
+                // Add socket to room
+                socket.join(roomId);
+                userRooms.set(socket.id, roomId);
+                
+                // Broadcast player list to room
+                io.to(roomId).emit('playerList', {
+                    players: room.players.filter(p => !p.disconnected).map(p => ({
+                        socketId: p.socketId,
+                        username: p.username,
+                        isHost: p.isHost,
+                        ready: p.ready
+                    })),
+                    gameMode: room.gameMode
+                });
+                
+                log(`Player ${socket.id} updated socket in room ${roomId}`, 'info', 'ROOM_EVENTS');
+                
+                // Ensure the client gets a success notification
+                socket.emit('roomJoined', {
+                    roomId,
+                    isHost: existingPlayer.isHost
+                });
+                
+                return;
+            }
+        }
+        
+        // Check if room is full (2 active players)
+        const activePlayers = room.players.filter(p => !p.disconnected);
+        if (activePlayers.length >= 2) {
+            log(`Room ${roomId} is full, client ${socket.id} cannot join`, 'warn', 'ROOM_EVENTS');
+            socket.emit('error', { message: 'Room is full' });
+            return;
+        }
+        
+        // Join the room
+        socket.join(roomId);
+        
+        // Add to userRooms map
+        userRooms.set(socket.id, roomId);
+        
+        // Add player to room
+        const newPlayer = {
+            socketId: socket.id,
+            username: username || `Player${room.players.length + 1}`,
+            isHost: room.players.length === 0,
+            userId: userId,
+            disconnected: false,
+            ready: false
+        };
+        
+        room.players.push(newPlayer);
+        
+        // Broadcast player list to room
+        io.to(roomId).emit('playerList', {
+            players: room.players.filter(p => !p.disconnected).map(p => ({
+                socketId: p.socketId,
+                username: p.username,
+                isHost: p.isHost,
+                ready: p.ready
+            })),
+            gameMode: room.gameMode
+        });
+        
+        // Ensure the client gets a success notification
+        socket.emit('roomJoined', {
+            roomId,
+            isHost: newPlayer.isHost
+        });
+        
+        log(`Player ${socket.id} joined room ${roomId}`, 'info', 'ROOM_EVENTS');
+    } catch (error) {
+        log(`Error joining room: ${error}`, 'error');
+        socket.emit('error', { message: 'Failed to join room' });
+    }
+});
+
+// Handle unit movement updates from clients
+socket.on('unitMove', (data) => {
+    const { unitId, x, y } = data;
+    const roomId = userRooms.get(socket.id);
+    if (!roomId) return;
+    
+    const room = rooms.get(roomId);
+    if (!room || !room.gameState) return;
+    
+    // Find the unit in server-side state
+    const unitIndex = room.serverGameState.units.findIndex(u => u.id === unitId);
+    if (unitIndex === -1) return;
+    
+    // Validate that this player owns the unit (anti-cheat)
+    const unit = room.serverGameState.units[unitIndex];
+    if (unit.playerId !== socket.id) {
+        log(`Rejected move - Player ${socket.id} tried to move unit owned by ${unit.playerId}`, 'warn');
+            return;
+        }
+        
+    // Get game mode config for movement speed limits
+    const gameMode = room.gameMode || 'classic';
+    const modeConfig = gameModes[gameMode] || gameModes.classic;
+    const unitStats = modeConfig.unitStats[unit.type] || {};
+    
+    // Check movement speed (basic anti-cheat)
+    const oldX = unit.x;
+    const oldY = unit.y;
+    const dx = x - oldX;
+    const dy = y - oldY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    // Max allowed movement per update (could be refined further)
+    const maxSpeed = (unitStats.speed || 1) * 10;
+    
+    if (dist > maxSpeed) {
+        log(`Rejected move - Unit ${unitId} attempted to move too fast (${dist} > ${maxSpeed})`, 'warn');
+        
+        // Notify the client of the correct position
+        socket.emit('unitPositionCorrection', {
+            unitId,
+            x: oldX, 
+            y: oldY
+        });
+            return;
+    }
+    
+    // Update position in server state
+    room.serverGameState.units[unitIndex].x = x;
+    room.serverGameState.units[unitIndex].y = y;
+    
+    // Also update in game state
+    const gameUnitIndex = room.gameState.units.findIndex(u => u.id === unitId);
+    if (gameUnitIndex !== -1) {
+        room.gameState.units[gameUnitIndex].x = x;
+        room.gameState.units[gameUnitIndex].y = y;
+    }
+    
+    // Broadcast move to all clients
+    io.to(roomId).emit('unitMoved', { unitId, x, y });
+});
+
+// Handle unit attack events
+socket.on('unitAttack', (data) => {
+    const { attackerUnitId, targetUnitId, damage } = data;
+    const roomId = userRooms.get(socket.id);
+    if (!roomId) return;
+    
+    const room = rooms.get(roomId);
+    if (!room || !room.gameState) return;
+    
+    // Find both units in server state
+    const attacker = room.serverGameState.units.find(u => u.id === attackerUnitId);
+    const target = room.serverGameState.units.find(u => u.id === targetUnitId);
+    
+    if (!attacker || !target) return;
+    
+    // Validate that this player owns the attacking unit
+    if (attacker.playerId !== socket.id) {
+        log(`Rejected attack - Player ${socket.id} tried to use unit owned by ${attacker.playerId}`, 'warn');
+        return;
+    }
+    
+    // Server-side damage calculation based on unit stats
+    const gameMode = room.gameMode || 'classic';
+    const modeConfig = gameModes[gameMode] || gameModes.classic;
+    const unitStats = modeConfig.unitStats[attacker.type] || {};
+    
+    // Use server-side damage value instead of client value
+    const serverDamage = unitStats.damage || 10;
+    
+    // Apply damage to target unit
+    target.health -= serverDamage;
+    
+    // Check if unit is destroyed
+    if (target.health <= 0) {
+        // Remove unit from server state
+        room.serverGameState.units = room.serverGameState.units.filter(u => u.id !== targetUnitId);
+        // Also remove from game state
+        room.gameState.units = room.gameState.units.filter(u => u.id !== targetUnitId);
+        
+        // Broadcast unit destruction
+        io.to(roomId).emit('unitDestroyed', { unitId: targetUnitId });
+        log(`Unit ${targetUnitId} destroyed by ${attackerUnitId}`, 'debug');
+    } else {
+        // Broadcast damage
+        io.to(roomId).emit('unitDamaged', { 
+            unitId: targetUnitId, 
+            health: target.health,
+            damageAmount: serverDamage,
+            attackerId: attackerUnitId
+        });
+    }
+});
+
+// Add handler for setting game mode
+socket.on('setGameMode', (data) => {
+    const roomId = userRooms.get(socket.id);
+    if (!roomId) {
+        socket.emit('error', { message: 'not_in_room' });
+        return;
+    }
+    
+    const room = rooms.get(roomId);
+    if (!room) {
+        socket.emit('error', { message: 'room_not_found' });
+        return;
+    }
+    
+    // Check if sender is the host
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player || !player.isHost) {
+        socket.emit('error', { message: 'only_host_can_change_mode' });
+        return;
+    }
+    
+    // Check if game already started
+    if (room.Started) {
+        socket.emit('error', { message: 'cannot_change_mode_after_start' });
+        return;
+    }
+    
+    // Update game mode
+    const newMode = data.mode || 'classic';
+    room.gameMode = newMode;
+    
+    // Notify all players in the room
+    io.to(roomId).emit('gameModeChanged', { gameMode: newMode });
+    
+    log(`Game mode changed to ${newMode} in room ${roomId}`, 'info');
+});
+
+// Handle ready status
+socket.on('toggleReady', () => {
+        const roomId = userRooms.get(socket.id);
+        if (!roomId) {
+        log(`Socket ${socket.id} tried to toggle ready status but is not in a room`, 'error');
+            socket.emit('error', { message: 'not_in_room' });
+            return;
+        }
+        
+    const room = rooms.get(roomId);
+    if (!room) {
+        log(`Socket ${socket.id} tried to toggle ready in room ${roomId}, but room doesn't exist`, 'error');
+        socket.emit('error', { message: 'room_not_found' });
+        return;
+    }
+    
+    // Find player in the room
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player) {
+        log(`Socket ${socket.id} not found in room ${roomId} players list`, 'error');
+        socket.emit('error', { message: 'player_not_found' });
+        return;
+    }
+    
+    // Don't allow toggling ready state if game has started
+    if (room.Started) {
+        log(`Socket ${socket.id} tried to toggle ready, but game in room ${roomId} already started`, 'warn');
+        socket.emit('error', { message: 'game_already_started' });
+        return;
+    }
+    
+    // Don't allow un-readying - only allow setting to ready if not already ready
+    if (player.ready) {
+        log(`Socket ${socket.id} tried to toggle ready, but already ready`, 'debug');
+        socket.emit('error', { message: 'ready_locked' });
+        return;
+    }
+    
+    // Set ready status to true (one-way toggle)
+    player.ready = true;
+    log(`Player ${player.username} (${socket.id}) set ready status to true in room ${roomId}`, 'info', 'PLAYER_READY');
+    
+    // Notify all players of the updated status
+    io.to(roomId).emit('playerList', {
+        players: room.players.filter(p => !p.disconnected).map(p => ({
+            socketId: p.socketId,
+            username: p.username,
+            isHost: p.isHost,
+            ready: p.ready
+        })),
+        gameMode: room.gameMode
+    });
+    
+    // Check if all players are ready
+    const allPlayersInRoom = room.players.filter(p => !p.disconnected);
+    const allPlayersReady = allPlayersInRoom.every(p => p.ready || p.isHost);
+    const hasEnoughPlayers = allPlayersInRoom.length >= 2;
+    
+    const allReady = hasEnoughPlayers && allPlayersReady;
+    
+    log(`Room ${roomId} ready check: players=${allPlayersInRoom.length}, allReady=${allPlayersReady}, hasEnoughPlayers=${hasEnoughPlayers}, startingGame=${allReady}`, 'info', 'PLAYER_READY');
+    
+    io.to(roomId).emit('allPlayersReady', { 
+        ready: allReady,
+        readyCount: room.players.filter(p => !p.disconnected && p.ready).length,
+        totalCount: allPlayersInRoom.length
+    });
+    
+    // If all players are ready, automatically start the game after a short delay
+    if (allReady) {
+        log(`All players ready in room ${roomId}, starting game automatically in 3 seconds`, 'info', 'GAME_EVENTS');
+        
+        // Notify all players that the game is about to start
+        io.to(roomId).emit('allPlayersReady', { 
+            ready: true,
+            readyCount: room.players.filter(p => !p.disconnected && p.ready).length,
+            totalCount: allPlayersInRoom.length,
+            autoStarting: true
+        });
+        
+        // Set a timer to start the game automatically
+        if (!room.autoStartTimer) {
+            const countdownStart = 3; // 3 second countdown
+            let countdown = countdownStart;
+            
+            // Send initial countdown notification
+            io.to(roomId).emit('autoStartCountdown', { seconds: countdown });
+            log(`Sent initial countdown (${countdown}) to room ${roomId}`, 'debug', 'GAME_EVENTS');
+            
+            // Create countdown interval
+            room.countdownInterval = setInterval(() => {
+                countdown--;
+                
+                // Send countdown update to all players
+                io.to(roomId).emit('autoStartCountdown', { seconds: countdown });
+                log(`Sent countdown update (${countdown}) to room ${roomId}`, 'debug', 'GAME_EVENTS');
+                
+                // When countdown reaches 0, clear the interval
+                if (countdown <= 0) {
+                    clearInterval(room.countdownInterval);
+                    room.countdownInterval = null;
+                    log(`Countdown finished for room ${roomId}`, 'debug', 'GAME_EVENTS');
+                }
+            }, 1000);
+            
+            room.autoStartTimer = setTimeout(() => {
+                // Check if the room still exists and the game hasn't started yet
+                if (rooms.has(roomId) && !room.Started) {
+                    log(`Auto-starting game in room ${roomId}`, 'info', 'GAME_EVENTS');
+                    
+                    // Initialize game state with mode-specific settings
+                    const gameMode = room.gameMode || 'classic';
+                    const modeConfig = gameModes[gameMode] || gameModes.classic;
+                    
+                    room.Started = true;
+                    room.gameState = {
+                        started: true,
+                        mode: gameMode,
+                        gold: {},
+                        units: [],
+                        hp: {}
+                    };
+                    
+                    // Initialize players with mode-specific starting gold
+                    room.players.forEach(player => {
+                        if (!player.disconnected) {
+                            room.gameState.gold[player.socketId] = modeConfig.initialGold;
+                            room.gameState.hp[player.socketId] = 100; // Starting HP
+                        }
+                    });
+                    
+                    // Copy relevant info to server game state for anti-cheat verification
+                    room.serverGameState = {
+                        started: true,
+                        gold: { ...room.gameState.gold },
+                        units: [],
+                        hp: { ...room.gameState.hp },
+                        lastUpdateTime: Date.now(),
+                        modeConfig: modeConfig
+                    };
+                    
+                    // Notify all players that the game has started
+                    io.to(roomId).emit('gameStarted', {
+                        gameState: room.gameState,
+                        modeConfig: {
+                            name: modeConfig.name,
+                            description: modeConfig.description,
+                            initialGold: modeConfig.initialGold,
+                            miningRate: modeConfig.miningRate,
+                            unitStats: modeConfig.unitStats
+                        },
+                        players: room.players.filter(p => !p.disconnected).map(p => ({
+                            id: p.socketId,
+                            username: p.username,
+                            isHost: p.isHost,
+                            gold: room.gameState.gold[p.socketId],
+                            hp: room.gameState.hp[p.socketId]
+                        }))
+                    });
+                    
+                    log(`Game auto-started in room ${roomId} with ${room.players.filter(p => !p.disconnected).length} players`, 'success', 'GAME_EVENTS');
+                    
+                    // Start mining income for all players
+                    startMiningIncome(roomId, modeConfig.miningRate);
+        } else {
+                    log(`Cannot auto-start game: room ${roomId} no longer exists or game already started`, 'warn', 'GAME_EVENTS');
+                }
+                
+                // Clear the timer reference
+                if (room) {
+                    room.autoStartTimer = null;
+                    
+                    // Also clear countdown interval if it exists
+                    if (room.countdownInterval) {
+                        clearInterval(room.countdownInterval);
+                        room.countdownInterval = null;
+                    }
+                }
+            }, 3000); // 3 second delay before auto-start
+        }
+    }
+});
+
+// Handle game start request
+socket.on('startGame', () => {
+    const roomId = userRooms.get(socket.id);
+    if (!roomId) {
+        socket.emit('error', { message: 'not_in_room' });
+        return;
+    }
+    
+    const room = rooms.get(roomId);
+    if (!room) {
+        socket.emit('error', { message: 'room_not_found' });
+        return;
+    }
+    
+    // Check if sender is the host
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player || !player.isHost) {
+        socket.emit('error', { message: 'only_host_can_start_game' });
+        return;
+    }
+    
+    // Check if the game has already started
+    if (room.Started) {
+        socket.emit('error', { message: 'game_already_started' });
+        return;
+    }
+    
+    // Check if we have enough players (at least 2)
+    if (room.players.filter(p => !p.disconnected).length < 2) {
+        socket.emit('error', { message: 'need_at_least_two_players' });
+        return;
+    }
+    
+    // Check if all players are ready
+    const allReady = room.players.filter(p => !p.disconnected).every(p => p.ready || p.isHost);
+    if (!allReady) {
+        socket.emit('error', { message: 'not_all_players_ready' });
+        return;
+    }
+    
+    // Get game mode configuration
+    const gameMode = room.gameMode || 'classic';
+    const modeConfig = gameModes[gameMode] || gameModes.classic;
+    
+    log(`Starting game in room ${roomId} with mode: ${gameMode}`, 'info', 'GAME_EVENTS');
+    
+    // Initialize game state with mode-specific settings
+    room.Started = true;
+    room.gameState = {
+        started: true,
+        mode: gameMode,
+        gold: {},
+        units: [],
+        hp: {}
+    };
+    
+    // Initialize players with mode-specific starting gold
+    room.players.forEach(player => {
+        if (!player.disconnected) {
+            room.gameState.gold[player.socketId] = modeConfig.initialGold;
+            room.gameState.hp[player.socketId] = 100; // Starting HP
+        }
+    });
+    
+    // Copy relevant info to server game state for anti-cheat verification
+    room.serverGameState = {
+        started: true,
+        gold: { ...room.gameState.gold },
+        units: [],
+        hp: { ...room.gameState.hp },
+        lastUpdateTime: Date.now(),
+        modeConfig: modeConfig
+    };
+    
+    // Notify all players that the game has started
+    io.to(roomId).emit('gameStarted', {
+        gameState: room.gameState,
+        modeConfig: {
+            name: modeConfig.name,
+            description: modeConfig.description,
+            initialGold: modeConfig.initialGold,
+            miningRate: modeConfig.miningRate,
+            unitStats: modeConfig.unitStats
+        },
+        players: room.players.filter(p => !p.disconnected).map(p => ({
+            id: p.socketId,
+            username: p.username,
+            isHost: p.isHost,
+            gold: room.gameState.gold[p.socketId],
+            hp: room.gameState.hp[p.socketId]
+        }))
+    });
+    
+    log(`Game started in room ${roomId} with ${room.players.filter(p => !p.disconnected).length} players`, 'success', 'GAME_EVENTS');
+    
+    // Start mining income for all players
+    startMiningIncome(roomId, modeConfig.miningRate);
+});
+
 // Add this function to handle mining income for the room
 function startMiningIncome(roomId, miningRate) {
-        const room = rooms.get(roomId);
+    const room = rooms.get(roomId);
     if (!room || !room.Started) return;
     
     // Clear any existing interval
-        if (room.miningInterval) {
-            clearInterval(room.miningInterval);
+    if (room.miningInterval) {
+        clearInterval(room.miningInterval);
     }
     
     // Set up mining income interval
@@ -1777,8 +1566,8 @@ function startMiningIncome(roomId, miningRate) {
                 playerId: player.socketId,
                 gold: room.gameState.gold[player.socketId],
                 delta: totalIncome
-    });
-});
+            });
+        });
         
         // Send synchronized gold update to all players in the room (for UI)
     io.to(roomId).emit('goldSyncUpdate', {
@@ -1789,6 +1578,244 @@ function startMiningIncome(roomId, miningRate) {
     });
     }, 5000); // Gold income every 5 seconds
 }
+
+// Handle unit spawning
+socket.on('spawnUnit', (data) => {
+    const roomId = userRooms.get(socket.id);
+    if (!roomId) {
+        socket.emit('error', { message: 'not_in_room' });
+        return;
+    }
+    
+    const room = rooms.get(roomId);
+    if (!room || !room.Started) {
+        socket.emit('error', { message: 'game_not_started' });
+        return;
+    }
+    
+    // Validate unit type
+    const unitType = data.unitType;
+    if (!unitType) {
+        socket.emit('error', { message: 'invalid_unit_type' });
+        return;
+    }
+    
+    // Get game mode config
+    const gameMode = room.gameMode || 'classic';
+    const modeConfig = gameModes[gameMode] || gameModes.classic;
+    
+    // Check if unit type is valid for this game mode
+    if (!modeConfig.unitStats[unitType]) {
+        socket.emit('error', { message: 'unit_not_available_in_mode' });
+            return;
+    }
+    
+    // Get unit cost from mode config
+    const unitStats = modeConfig.unitStats[unitType];
+    const cost = unitStats.cost;
+    
+    // Check if player has enough gold
+    const currentGold = room.serverGameState.gold[socket.id] || 0;
+    if (currentGold < cost) {
+        socket.emit('error', { message: 'not_enough_gold' });
+        return;
+    }
+    
+    // Create unit with mode-specific stats
+    const unitId = `${unitType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const isLeftPlayer = room.players.findIndex(p => p.socketId === socket.id) === 0;
+    
+    const unitData = {
+        id: unitId,
+        type: unitType,
+        playerId: socket.id,
+        x: data.x || (isLeftPlayer ? 100 : 900),
+        y: data.y || 300,
+        health: unitStats.health || 100,
+        damage: unitStats.damage,
+        speed: unitStats.speed,
+        isLeftPlayer
+    };
+    
+    // Deduct gold from player
+    room.gameState.gold[socket.id] -= cost;
+    room.serverGameState.gold[socket.id] -= cost;
+    
+    // Add unit to game state
+    room.gameState.units.push(unitData);
+    room.serverGameState.units.push(unitData);
+    
+    // Notify all players about the new unit
+    io.to(roomId).emit('unitSpawned', unitData);
+    
+    // Update player's gold
+    socket.emit('goldUpdate', {
+        playerId: socket.id,
+        gold: room.gameState.gold[socket.id],
+        delta: -cost
+    });
+    
+    log(`Player ${socket.id} spawned ${unitType} in room ${roomId}`, 'debug', 'GAME_EVENTS');
+});
+
+// Handle game end and ELO updates
+socket.on('gameCompleted', async (data) => {
+    const roomId = userRooms.get(socket.id);
+    if (!roomId) {
+        socket.emit('error', { message: 'not_in_room' });
+        return;
+    }
+    
+    const room = rooms.get(roomId);
+    if (!room) {
+        socket.emit('error', { message: 'room_not_found' });
+        return;
+    }
+    
+    // Validate the winner is in this room
+    const { winnerId } = data;
+    const winnerPlayer = room.players.find(p => p.userId === parseInt(winnerId));
+    
+    if (!winnerPlayer) {
+        log(`Invalid winner ID ${winnerId} for room ${roomId}`, 'error');
+        socket.emit('error', { message: 'invalid_winner' });
+        return;
+    }
+    
+    // Get match ID from room
+    const matchId = room.matchId;
+    if (!matchId) {
+        log(`No match ID found for room ${roomId}`, 'error');
+        socket.emit('error', { message: 'match_not_found' });
+        return;
+    }
+    
+    log(`Game completed in room ${roomId}, winner: ${winnerPlayer.username} (${winnerId})`, 'info', 'GAME_EVENTS');
+    
+    // Update ELO ratings
+    const eloResult = await updateEloRatings(matchId, parseInt(winnerId));
+    
+    if (!eloResult) {
+        log(`Failed to update ELO ratings for match ${matchId}`, 'error');
+        socket.emit('error', { message: 'elo_update_failed' });
+        return;
+    }
+    
+    // Notify all players in the room about the game results and ELO changes
+    io.to(roomId).emit('gameResults', {
+        winner: eloResult.winner,
+        loser: eloResult.loser,
+        matchId: matchId
+    });
+    
+    log(`Game results sent to room ${roomId}`, 'debug', 'GAME_EVENTS');
+    
+    // Reset disconnect count for players who completed the game normally
+    for (const player of room.players) {
+        if (player.userId && userDisconnects.has(player.userId)) {
+            const disconnectInfo = userDisconnects.get(player.userId);
+            
+            // Only reset if they have fewer than 5 disconnects (not banned)
+            if (disconnectInfo.count < 5) {
+                log(`Resetting disconnect count for player ${player.userId} after normal game completion`, 'debug');
+                disconnectInfo.count = 0;
+                disconnectInfo.warnings = 0;
+                
+                // Update in database as well
+                prisma.user.update({
+                    where: { id: player.userId },
+                    data: { 
+                        disconnectCount: 0,
+                        lastDisconnectAt: null
+                    }
+                }).catch(err => log(`Error updating user disconnect count: ${err}`, 'error'));
+            }
+        }
+    }
+    
+    // Mark the room as completed
+    room.completed = true;
+    
+    // Schedule room cleanup after a delay to allow players to see results
+    setTimeout(() => {
+        if (rooms.has(roomId)) {
+            log(`Cleaning up completed room ${roomId}`, 'debug', 'ROOM_EVENTS');
+            rooms.delete(roomId);
+        }
+    }, 300000); // 5 minutes
+});
+
+// Handle game mode info request
+socket.on('getGameModes', () => {
+    // Send all available game modes to the client
+    const modeInfo = Object.keys(gameModes).map(key => ({
+        id: key,
+        name: gameModes[key].name,
+        description: gameModes[key].description,
+        initialGold: gameModes[key].initialGold,
+        miningRate: gameModes[key].miningRate,
+        availableUnits: Object.keys(gameModes[key].unitStats)
+    }));
+    
+    socket.emit('gameModeList', { modes: modeInfo });
+    log(`Sent game mode info to client ${socket.id}`, 'debug');
+});
+
+// Improved setGameMode handler
+socket.on('setGameMode', (data) => {
+    const roomId = userRooms.get(socket.id);
+    if (!roomId) {
+        socket.emit('error', { message: 'not_in_room' });
+        return;
+    }
+    
+    const room = rooms.get(roomId);
+    if (!room) {
+        socket.emit('error', { message: 'room_not_found' });
+        return;
+    }
+    
+    // Check if sender is the host
+    const player = room.players.find(p => p.socketId === socket.id);
+    if (!player || !player.isHost) {
+        socket.emit('error', { message: 'only_host_can_change_mode' });
+        return;
+    }
+    
+    // Check if game already started
+    if (room.Started) {
+        socket.emit('error', { message: 'cannot_change_mode_after_start' });
+        return;
+    }
+    
+    // Update game mode if it's valid
+    const newMode = data.mode || 'classic';
+    if (!gameModes[newMode]) {
+        socket.emit('error', { message: 'invalid_game_mode' });
+        return;
+    }
+    
+    room.gameMode = newMode;
+    
+    // Provide full game mode info to clients
+    const modeInfo = {
+        id: newMode,
+        name: gameModes[newMode].name,
+        description: gameModes[newMode].description,
+        initialGold: gameModes[newMode].initialGold,
+        miningRate: gameModes[newMode].miningRate,
+        unitStats: gameModes[newMode].unitStats,
+        availableUnits: Object.keys(gameModes[newMode].unitStats)
+    };
+    
+    // Notify all players in the room
+    io.to(roomId).emit('gameModeChanged', { 
+        gameMode: newMode,
+        modeInfo: modeInfo
+    });
+    
+    log(`Game mode changed to ${newMode} in room ${roomId}`, 'info');
+});
 
 // ===== Middleware Functions =====
 
@@ -2774,41 +2801,19 @@ async function tryMatchmaking(userId) {
     if (player1SocketId) {
       const socket1 = io.sockets.sockets.get(player1SocketId);
       if (socket1) {
-        // Update socket room association and player info in room
-        rooms.get(roomId).players[0].socketId = player1SocketId;
-        socket1.join(roomId);
-        userRooms.set(player1SocketId, roomId);
-        
         socket1.emit('matchFound', { roomId, opponent: player2.username });
-        log(`Notified player ${player1.username} of match and joined to room ${roomId}`, 'debug', 'MATCHMAKING');
+        log(`Notified player ${player1.username} of match`, 'debug', 'MATCHMAKING');
       }
     }
     
     if (player2SocketId) {
       const socket2 = io.sockets.sockets.get(player2SocketId);
       if (socket2) {
-        // Update socket room association and player info in room
-        rooms.get(roomId).players[1].socketId = player2SocketId;
-        socket2.join(roomId);
-        userRooms.set(player2SocketId, roomId);
-        
         socket2.emit('matchFound', { roomId, opponent: player1.username });
-        log(`Notified player ${player2.username} of match and joined to room ${roomId}`, 'debug', 'MATCHMAKING');
+        log(`Notified player ${player2.username} of match`, 'debug', 'MATCHMAKING');
       }
     }
     
-    // Update both players' lastRoom in the database
-    await prisma.user.update({
-      where: { id: player1.id },
-      data: { lastRoom: roomId }
-    });
-    
-    await prisma.user.update({
-      where: { id: player2.id },
-      data: { lastRoom: roomId }
-    });
-    
-    log(`Updated lastRoom to ${roomId} for both players`, 'debug', 'MATCHMAKING');
     log(`Match created successfully between ${player1.username} and ${player2.username} in room ${roomId}`, 'success', 'MATCHMAKING');
     
     return {
@@ -3087,8 +3092,8 @@ app.post('/api/pairing/check-matches', isAuthenticated, async (req, res) => {
 });
 
 console.log('=========== SERVER INITIALIZATION STARTED ===========');
-    
-    httpServer.listen(PORT, () => {
+
+httpServer.listen(PORT, () => {
   console.log(`=========== SERVER STARTED ON PORT ${PORT} ===========`);
   log(`Server is running on http://localhost:${PORT}`, 'success');
   log(`Website "天下太平" is now available!`, 'success');
@@ -4195,47 +4200,4 @@ async function debugSocketConnections() {
     log(`❌ Error debugging socket connections: ${error}`, 'error');
     return false;
   }
-}
-
-// Handle roomJoined event - client side code
-// Add better debugging in game-room.html
-socket.on('roomCheckResult', (data) => {
-    console.log('Room check result:', data);
-    if (!data.exists) {
-        const reason = data.reason || data.error || 'Unknown reason';
-        console.error(`Room does not exist or has expired. Reason: ${reason}`);
-        alert(`Room does not exist or has expired. Reason: ${reason}`);
-        // Redirect to home page
-        window.location.href = '/';
-        return;
-    }
-    
-    // ... rest of existing code ...
-});
-
-// Load test room data if available
-try {
-  const testRoomPath = path.join(__dirname, 'test-room-data.json');
-  if (fs.existsSync(testRoomPath)) {
-    const testRoomData = JSON.parse(fs.readFileSync(testRoomPath, 'utf8'));
-    const { roomId, player1Id, player2Id, matchId } = testRoomData;
-    
-    log(`Loading test room ${roomId} from test-room-data.json`, 'info', 'STARTUP');
-    
-    // Create the room in memory
-    rooms.set(roomId, {
-      id: roomId,
-      players: [
-        { userId: player1Id, socketId: null, ready: false, isHost: true, username: 'TestUser' },
-        { userId: player2Id, socketId: null, ready: false, isHost: false, username: 'TestUser2' }
-      ],
-      gameMode: 'classic',
-      Started: false,
-      matchId: matchId
-    });
-    
-    log(`Test room ${roomId} loaded with players ${player1Id} and ${player2Id}`, 'info', 'STARTUP');
-  }
-} catch (error) {
-  log(`Error loading test room data: ${error}`, 'error', 'STARTUP');
 }

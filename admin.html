@@ -5,39 +5,400 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - 天下太平</title>
     <link rel="stylesheet" href="styles.css">
+    <meta name="description" content="Admin panel for managing World Peace Online users and game settings">
+    <style>
+        .admin-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .admin-title {
+            margin: 0;
+        }
+        
+        .admin-nav {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 200px;
+        }
+        
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            overflow-x: auto;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+        
+        .user-table th {
+            background-color: #4CAF50;
+            color: white;
+            text-align: left;
+            padding: 12px;
+            position: sticky;
+            top: 0;
+            cursor: pointer;
+        }
+        
+        .user-table th:hover,
+        .user-table th:focus {
+            background-color: #3e8e41;
+            outline: none;
+        }
+        
+        .user-table th::after {
+            content: "";
+            margin-left: 5px;
+        }
+        
+        .user-table th.sort-asc::after {
+            content: "▲";
+        }
+        
+        .user-table th.sort-desc::after {
+            content: "▼";
+        }
+        
+        .user-table td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .user-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        .user-table tr:hover {
+            background-color: #f1f1f1;
+        }
+        
+        .actions-cell {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        
+        .actions-cell button {
+            padding: 8px 12px;
+            font-size: 13px;
+            min-width: 60px;
+            min-height: 36px; /* Ensure adequate touch target size */
+        }
+        
+        .status-banned {
+            color: #fff;
+            background-color: #f44336;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .status-clear {
+            color: #fff;
+            background-color: #4CAF50;
+            padding: 3px 6px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .btn-ban {
+            background-color: #f44336;
+        }
+        
+        .btn-unban {
+            background-color: #4CAF50;
+        }
+        
+        /* Modal improvements */
+        .modal-content {
+            width: 90%;
+            max-width: 500px;
+            border-radius: 8px;
+        }
+        
+        .modal-header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 15px;
+            border-radius: 8px 8px 0 0;
+        }
+        
+        .modal-close {
+            color: white;
+            cursor: pointer;
+            font-size: 24px;
+            font-weight: bold;
+            position: absolute;
+            right: 15px;
+            top: 10px;
+        }
+        
+        .modal-close:hover,
+        .modal-close:focus {
+            color: #f1f1f1;
+            outline: none;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .form-group select, 
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Skip link for keyboard navigation */
+        .skip-to-content {
+            position: absolute;
+            left: -9999px;
+            top: 0;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            z-index: 9999;
+            background: #4CAF50;
+            color: white;
+            padding: 10px;
+            border-radius: 0 0 5px 0;
+            text-decoration: none;
+        }
+        
+        .skip-to-content:focus {
+            left: 0;
+            width: auto;
+            height: auto;
+            outline: none;
+        }
+        
+        /* Responsive adjustments */
+        @media screen and (max-width: 768px) {
+            .admin-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .admin-nav {
+                margin-top: 15px;
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            .filter-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .filter-group {
+                width: 100%;
+            }
+            
+            .table-wrapper {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+            }
+            
+            .user-table {
+                min-width: 600px;
+            }
+            
+            .actions-cell {
+                flex-direction: column;
+                gap: 5px;
+            }
+            
+            .actions-cell button {
+                width: 100%;
+            }
+            
+            /* Better touch targets on mobile */
+            button, select, input {
+                font-size: 16px; /* Prevent zoom on iOS */
+                min-height: 44px; /* Better touch targets */
+            }
+            
+            .modal-content {
+                width: 95%;
+                max-height: 90vh;
+                overflow-y: auto;
+            }
+            
+            .modal-close {
+                font-size: 28px; /* Larger touch target */
+                padding: 5px;
+            }
+        }
+        
+        /* Small screen optimizations */
+        @media screen and (max-width: 480px) {
+            .admin-container {
+                padding: 10px;
+            }
+            
+            .filter-controls {
+                padding: 10px;
+            }
+            
+            h3 {
+                font-size: 18px;
+            }
+            
+            .admin-title {
+                font-size: 20px;
+            }
+        }
+        
+        /* High contrast mode support */
+        @media (forced-colors: active) {
+            .user-table th {
+                border: 1px solid;
+            }
+            
+            .user-table td {
+                border: 1px solid;
+            }
+            
+            .status-banned, .status-clear {
+                border: 1px solid;
+            }
+        }
+        
+        /* Focus styles */
+        button:focus, select:focus, input:focus, th:focus {
+            outline: 2px solid #4a69bd;
+            outline-offset: 2px;
+        }
+    </style>
 </head>
 <body>
+    <a href="#user-management" class="skip-to-content">Skip to user management</a>
     <div id="language-selector"></div>
     <div class="admin-container">
         <div class="admin-header">
-            <h2 class="admin-title">Admin Panel - 天下太平</h2>
+            <h1 class="admin-title">Admin Panel - 天下太平</h1>
             <div class="admin-nav">
-                <button id="refresh-btn">Refresh Data</button>
-                <button id="home-btn">Back to Home</button>
-                <button id="dashboard-btn">My Dashboard</button>
+                <button id="refresh-btn" class="btn" aria-label="Refresh data">Refresh Data</button>
+                <button id="home-btn" class="btn" aria-label="Go back to home page">Back to Home</button>
+                <button id="dashboard-btn" class="btn" aria-label="Go to dashboard">My Dashboard</button>
             </div>
         </div>
         
-        <div id="message" class="message"></div>
+        <div id="message" class="message" style="display: none;" role="alert" aria-live="assertive"></div>
         
-        <h3>User Management</h3>
-        <table class="user-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Username</th>
-                    <th>Rank</th>
-                    <th>Created At</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="user-table-body">
-                <!-- User data will be loaded here -->
-                <tr>
-                    <td colspan="5">Loading user data...</td>
-                </tr>
-            </tbody>
-        </table>
+        <div class="filter-controls" role="search" aria-label="User filter controls">
+            <div class="filter-group">
+                <label for="filter-role">Role:</label>
+                <select id="filter-role" class="filter-select" aria-label="Filter by role">
+                    <option value="">All Roles</option>
+                    <option value="ADMIN">Admin</option>
+                    <option value="PLAYER">Player</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="filter-ban">Ban Status:</label>
+                <select id="filter-ban" class="filter-select" aria-label="Filter by ban status">
+                    <option value="">All</option>
+                    <option value="BANNED">Banned</option>
+                    <option value="CLEAR">Not Banned</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="search-user">Search:</label>
+                <input type="text" id="search-user" placeholder="Search users..." aria-label="Search users by username">
+            </div>
+        </div>
+        
+        <h2 id="user-management">User Management</h2>
+        <div class="table-wrapper">
+            <div id="loading-indicator" class="loading" role="status">
+                <div class="spinner" aria-hidden="true"></div>
+                <p>Loading user data...</p>
+            </div>
+            <table class="user-table" id="user-table" style="display: none;" aria-label="User management table">
+                <thead>
+                    <tr>
+                        <th data-sort="id">ID</th>
+                        <th data-sort="username">Username</th>
+                        <th data-sort="role">Role</th>
+                        <th data-sort="elo">ELO</th>
+                        <th data-sort="banStatus">Ban Status</th>
+                        <th data-sort="createdAt">Created At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="user-table-body">
+                    <!-- User data will be loaded here -->
+                </tbody>
+            </table>
+        </div>
     </div>
     
     <!-- Edit User Modal -->
@@ -54,12 +415,19 @@
                     <input type="text" id="edit-username" required>
                 </div>
                 <div class="form-group">
-                    <label for="edit-rank">Rank</label>
-                    <input type="number" id="edit-rank" min="1" max="10" required>
+                    <label for="edit-role">Role</label>
+                    <select id="edit-role" required>
+                        <option value="PLAYER">Player</option>
+                        <option value="ADMIN">Admin</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit-elo">ELO Rating</label>
+                    <input type="number" id="edit-elo" min="0" required>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn-cancel">Cancel</button>
-                    <button type="submit" class="btn-save">Save Changes</button>
+                    <button type="button" class="btn-cancel btn">Cancel</button>
+                    <button type="submit" class="btn-save btn">Save Changes</button>
                 </div>
             </form>
         </div>
@@ -68,6 +436,10 @@
     <script type="module">
         import i18n from './js/i18n.js';
         import { createLanguageSelector } from './js/language-selector.js';
+        
+        // Global variables
+        let allUsers = [];
+        let currentSort = { field: 'id', direction: 'asc' };
         
         // Initialize translations
         document.addEventListener('DOMContentLoaded', () => {
@@ -92,6 +464,30 @@
             document.getElementById('refresh-btn').addEventListener('click', () => {
                 loadUsers();
             });
+            
+            // Set up sorting
+            document.querySelectorAll('th[data-sort]').forEach(th => {
+                th.addEventListener('click', () => {
+                    const sortField = th.dataset.sort;
+                    // Toggle direction if same field, or set to asc if new field
+                    const sortDirection = sortField === currentSort.field && currentSort.direction === 'asc' ? 'desc' : 'asc';
+                    
+                    // Update sort indicators
+                    document.querySelectorAll('th').forEach(header => {
+                        header.classList.remove('sort-asc', 'sort-desc');
+                    });
+                    th.classList.add(`sort-${sortDirection}`);
+                    
+                    // Update current sort and re-render
+                    currentSort = { field: sortField, direction: sortDirection };
+                    applyFiltersAndSort();
+                });
+            });
+            
+            // Set up filtering
+            document.getElementById('filter-role').addEventListener('change', applyFiltersAndSort);
+            document.getElementById('filter-ban').addEventListener('change', applyFiltersAndSort);
+            document.getElementById('search-user').addEventListener('input', applyFiltersAndSort);
             
             // Set up modal events
             const modal = document.getElementById('edit-modal');
@@ -118,7 +514,8 @@
                 
                 const userId = document.getElementById('edit-user-id').value;
                 const username = document.getElementById('edit-username').value;
-                const rank = document.getElementById('edit-rank').value;
+                const role = document.getElementById('edit-role').value;
+                const elo = document.getElementById('edit-elo').value;
                 
                 try {
                     const response = await fetch(`/api/admin/users/${userId}`, {
@@ -126,7 +523,7 @@
                         headers: {
                             'Content-Type': 'application/json'
                         },
-                        body: JSON.stringify({ username, rank })
+                        body: JSON.stringify({ username, role, elo })
                     });
                     
                     const data = await response.json();
@@ -147,7 +544,7 @@
         
         async function checkAdminStatus() {
             try {
-                const response = await fetch('/api/user/me');
+                const response = await fetch('/api/me');
                 
                 if (response.status === 401) {
                     // Not logged in
@@ -157,7 +554,7 @@
                 
                 const data = await response.json();
                 
-                if (!data.isAdmin) {
+                if (data.role !== "ADMIN") {
                     // Not an admin
                     showMessage('You do not have permission to access this page', 'error');
                     setTimeout(() => {
@@ -172,9 +569,13 @@
         
         async function loadUsers() {
             try {
+                // Show loading indicator
+                document.getElementById('loading-indicator').style.display = 'flex';
+                document.getElementById('user-table').style.display = 'none';
+                
                 const response = await fetch('/api/admin/users');
                 
-                if (response.status === 401) {
+                if (response.status === 401 || response.status === 403) {
                     // Not logged in or not authorized
                     window.location.href = '/login.html';
                     return;
@@ -182,22 +583,72 @@
                 
                 const data = await response.json();
                 
+                // Hide loading indicator
+                document.getElementById('loading-indicator').style.display = 'none';
+                document.getElementById('user-table').style.display = 'table';
+                
                 if (response.ok) {
-                    renderUserTable(data);
+                    // Store all users for filtering
+                    allUsers = data;
+                    
+                    // Apply initial sort and filters
+                    applyFiltersAndSort();
                 } else {
                     showMessage(data.error || 'Failed to load users', 'error');
                 }
             } catch (error) {
+                document.getElementById('loading-indicator').style.display = 'none';
                 showMessage('System error', 'error');
                 console.error(error);
             }
+        }
+        
+        function applyFiltersAndSort() {
+            // Get filter values
+            const roleFilter = document.getElementById('filter-role').value;
+            const banFilter = document.getElementById('filter-ban').value;
+            const searchQuery = document.getElementById('search-user').value.toLowerCase();
+            
+            // Apply filters
+            let filteredUsers = allUsers.filter(user => {
+                // Role filter
+                if (roleFilter && user.role !== roleFilter) return false;
+                
+                // Ban status filter
+                if (banFilter && user.banStatus !== banFilter) return false;
+                
+                // Search query
+                if (searchQuery && !user.username.toLowerCase().includes(searchQuery)) return false;
+                
+                return true;
+            });
+            
+            // Apply sorting
+            filteredUsers.sort((a, b) => {
+                let valueA = a[currentSort.field];
+                let valueB = b[currentSort.field];
+                
+                // Handle dates
+                if (currentSort.field === 'createdAt' || currentSort.field === 'updatedAt') {
+                    valueA = new Date(valueA);
+                    valueB = new Date(valueB);
+                }
+                
+                // Compare
+                if (valueA < valueB) return currentSort.direction === 'asc' ? -1 : 1;
+                if (valueA > valueB) return currentSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+            
+            // Render the sorted and filtered users
+            renderUserTable(filteredUsers);
         }
         
         function renderUserTable(users) {
             const tableBody = document.getElementById('user-table-body');
             
             if (users.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="5">No users found</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="7">No users found</td></tr>';
                 return;
             }
             
@@ -209,14 +660,24 @@
                 // Format date
                 const createdAt = new Date(user.createdAt).toLocaleString();
                 
+                // Determine ban status class for styling
+                const banStatusClass = user.banStatus === 'BANNED' ? 'status-banned' : 'status-clear';
+                
                 row.innerHTML = `
                     <td>${user.id}</td>
                     <td>${user.username}</td>
-                    <td>${user.rank}</td>
+                    <td>${user.role}</td>
+                    <td>${user.elo}</td>
+                    <td><span class="${banStatusClass}">${user.banStatus}</span></td>
                     <td>${createdAt}</td>
                     <td class="actions-cell">
-                        <button class="btn-edit" data-id="${user.id}">Edit</button>
-                        <button class="btn-delete" data-id="${user.id}">Delete</button>
+                        <button class="btn btn-edit" data-id="${user.id}">Edit</button>
+                        ${user.role !== 'ADMIN' ? 
+                            (user.banStatus === 'BANNED' ? 
+                                `<button class="btn btn-unban" data-id="${user.id}">Unban</button>` : 
+                                `<button class="btn btn-ban" data-id="${user.id}">Ban</button>`) : 
+                            ''}
+                        <button class="btn btn-delete" data-id="${user.id}">Delete</button>
                     </td>
                 `;
                 
@@ -227,6 +688,20 @@
             document.querySelectorAll('.btn-edit').forEach(btn => {
                 btn.addEventListener('click', () => {
                     openEditModal(btn.dataset.id);
+                });
+            });
+            
+            // Add event listeners to ban buttons
+            document.querySelectorAll('.btn-ban').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    banUser(btn.dataset.id);
+                });
+            });
+            
+            // Add event listeners to unban buttons
+            document.querySelectorAll('.btn-unban').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    unbanUser(btn.dataset.id);
                 });
             });
             
@@ -246,7 +721,8 @@
                 if (response.ok) {
                     document.getElementById('edit-user-id').value = data.id;
                     document.getElementById('edit-username').value = data.username;
-                    document.getElementById('edit-rank').value = data.rank;
+                    document.getElementById('edit-role').value = data.role;
+                    document.getElementById('edit-elo').value = data.elo;
                     
                     document.getElementById('edit-modal').style.display = 'block';
                 } else {
@@ -272,6 +748,50 @@
                         loadUsers();
                     } else {
                         showMessage(data.error || 'Failed to delete user', 'error');
+                    }
+                } catch (error) {
+                    showMessage('System error', 'error');
+                    console.error(error);
+                }
+            }
+        }
+        
+        async function banUser(userId) {
+            if (confirm('Are you sure you want to ban this user?')) {
+                try {
+                    const response = await fetch(`/api/admin/users/${userId}/ban`, {
+                        method: 'POST'
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        showMessage('User banned successfully', 'success');
+                        loadUsers();
+                    } else {
+                        showMessage(data.error || 'Failed to ban user', 'error');
+                    }
+                } catch (error) {
+                    showMessage('System error', 'error');
+                    console.error(error);
+                }
+            }
+        }
+        
+        async function unbanUser(userId) {
+            if (confirm('Are you sure you want to unban this user?')) {
+                try {
+                    const response = await fetch(`/api/admin/users/${userId}/unban`, {
+                        method: 'POST'
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        showMessage('User unbanned successfully', 'success');
+                        loadUsers();
+                    } else {
+                        showMessage(data.error || 'Failed to unban user', 'error');
                     }
                 } catch (error) {
                     showMessage('System error', 'error');

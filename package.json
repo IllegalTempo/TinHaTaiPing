@@ -9,16 +9,24 @@
     "prisma:migrate": "prisma migrate dev"
   },
   "dependencies": {
-    "@prisma/client": "^6.8.0",
+    "@prisma/client": "^6.8.2",
     "bcrypt": "^5.0.1",
     "connect-sqlite3": "^0.9.13",
     "cookie-parser": "^1.4.6",
+<<<<<<< HEAD
+    "dotenv": "^16.5.0",
+=======
+    "dotenv": "^16.4.5",
+    "elo-rating": "^1.0.1",
+>>>>>>> 5924b25a9ef56ef2fd1cff079547b3f7d7fd3151
     "express": "^4.17.1",
     "express-session": "^1.17.2",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
     "socket.io": "^4.4.1"
   },
   "devDependencies": {
     "eslint": "^9.26.0",
-    "prisma": "^6.8.0"
+    "prisma": "^6.8.2"
   }
 }

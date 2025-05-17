@@ -7,15 +7,70 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = "file:../db/tianxia-taiping.db"
 }
 
 model User {
+  id             Int           @id @default(autoincrement())
+  username       String        @unique
+  password       String
+  email          String?       @unique
+  googleId       String?       @unique
+  role           String        @default("PLAYER") // PLAYER, ADMIN
+  elo            Int           @default(1200)
+  lastRoom       String?
+  banStatus      String        @default("CLEAR") // CLEAR, BANNED, TEMP_BANNED
+  banExpiration  DateTime?     // Only used for temporary bans
+  disconnectCount Int          @default(0)
+  lastDisconnectAt DateTime?
+  matchesAsPlayer1 Match[]     @relation("Player1Matches")
+  matchesAsPlayer2 Match[]     @relation("Player2Matches")
+  matchesWon    Match[]        @relation("MatchWinner")
+  sentRequests   Friendship[]  @relation("SentRequests")
+  receivedRequests Friendship[] @relation("ReceivedRequests")
+  queueEntry     PairingQueue?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Match {
+  id             Int       @id @default(autoincrement())
+  player1        User      @relation("Player1Matches", fields: [player1Id], references: [id])
+  player1Id      Int
+  player2        User      @relation("Player2Matches", fields: [player2Id], references: [id])
+  player2Id      Int
+  winner         User?     @relation("MatchWinner", fields: [winnerId], references: [id])
+  winnerId       Int?
+  winnerByDefault Boolean  @default(false)
+  completed      Boolean   @default(false)
+  completedAt    DateTime?
+  gameMode       String?   @default("classic")
+  winnerEloChange Int?
+  loserEloChange Int?
+  abandonedAt    DateTime?
+  abandonedBy    Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Friendship {
+  id         Int      @id @default(autoincrement())
+  sender     User      @relation("SentRequests", fields: [senderId], references: [id])
+  senderId   Int
+  receiver   User      @relation("ReceivedRequests", fields: [receiverId], references: [id])
+  receiverId Int
+  status     String   @default("pending") // pending, accepted, rejected
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([senderId, receiverId])
+}
+
+model PairingQueue {
   id        Int      @id @default(autoincrement())
-  username  String   @unique
-  password  String
-  rank      Int      @default(0)
-  lastRoom  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  user      User      @relation(fields: [userId], references: [id])
+  userId    Int       @unique
+  eloMin    Int?
+  eloMax    Int?
+  joinedAt  DateTime @default(now())
 } 

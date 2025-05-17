@@ -3,55 +3,534 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="title">天下太平</title>
+    <meta name="description" content="World Peace Online - A strategic multiplayer game inspired by classic strategy games">
+    <title>天下太平 - World Peace Online</title>
     <link rel="stylesheet" href="styles.css">
+    <!-- Preload critical assets -->
+    <link rel="preload" href="images/bg.png" as="image">
+    <!-- Favicon -->
+    <link rel="icon" href="images/favicon.ico" type="image/x-icon">
+    <!-- Apple touch icon for iOS devices -->
+    <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
+    <style>
+        /* Game-inspired elements */
+        @keyframes glow {
+            0% { text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(74, 105, 189, 0.5); }
+            50% { text-shadow: 0 0 20px rgba(255,255,255,0.8), 0 0 30px rgba(74, 105, 189, 0.8); }
+            100% { text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(74, 105, 189, 0.5); }
+        }
+        
+        .title-glow {
+            animation: glow 3s infinite;
+        }
+        
+        .game-badge {
+            position: absolute;
+            top: -15px;
+            right: -15px;
+            background-color: #e74c3c;
+            color: white;
+            border-radius: 50%;
+            padding: 8px 12px;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            transform: rotate(15deg);
+        }
+        
+        .player-count {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-top: 10px;
+        }
+        
+        /* Quote from a famous game */
+        .game-quote {
+            font-style: italic;
+            color: #bdc3c7;
+            margin: 20px 0;
+            text-align: center;
+            font-size: 16px;
+        }
+        
+        /* Game mode selector */
+        .game-modes {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .game-mode {
+            padding: 8px 15px;
+            background-color: rgba(41, 128, 185, 0.7);
+            border-radius: 20px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .game-mode:hover,
+        .game-mode:focus {
+            background-color: rgba(41, 128, 185, 1);
+            transform: scale(1.05);
+        }
+        
+        .game-mode.active {
+            background-color: #e67e22;
+        }
+        
+        .game-mode-description {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            max-width: 600px;
+            text-align: center;
+            color: #ecf0f1;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        /* Matchmaking options */
+        .matchmaking-options {
+            margin-top: 30px;
+            text-align: center;
+        }
+        
+        .matchmaking-title {
+            font-size: 1.2rem;
+            color: #ecf0f1;
+            margin-bottom: 15px;
+        }
+        
+        .matchmaking-methods {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 10px;
+        }
+        
+        .matchmaking-card {
+            background: rgba(41, 128, 185, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            width: 180px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .matchmaking-card:hover {
+            background: rgba(41, 128, 185, 0.5);
+            transform: translateY(-3px);
+        }
+        
+        .matchmaking-card h4 {
+            color: #242c57;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        
+        .matchmaking-card p {
+            font-size: 13px;
+            color: #242c57;
+        }
+        
+        .matchmaking-icon {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+            .title-glow {
+                animation: none;
+                text-shadow: 0 0 15px rgba(255,255,255,0.8), 0 0 25px rgba(74, 105, 189, 0.7);
+            }
+        }
+        
+        /* Responsive improvements */
+        @media (max-width: 480px) {
+            .title-container h1 {
+                font-size: 2.5rem;
+            }
+            
+            .room-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .room-button {
+                width: 80%;
+                margin-bottom: 10px;
+            }
+            
+            .matchmaking-methods {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .matchmaking-card {
+                width: 80%;
+            }
+        }
+    </style>
 </head>
 <body>
-    <div id="language-selector"></div>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    
     <div class="header">
-        <a href="/" class="site-title" data-i18n="title">天下太平</a>
-        <div class="auth-links" id="auth-links">
-            <a href="/login.html" data-i18n="login">登录</a>
-            <a href="/signup.html" data-i18n="signup">注册</a>
+        <a href="/" class="site-title">World Peace Online</a>
+        <div class="auth-links">
+            <div id="auth-buttons">
+                <a href="/login.html" aria-label="Log in to your account">Log in</a>
+                <a href="/signup.html" aria-label="Create a new account">Sign up</a>
+            </div>
         </div>
     </div>
 
-    <div class="title-container">
-        <h1 data-i18n="title">天下太平</h1>
+    <div class="container" id="main-content">
+        <div class="title-container" tabindex="0">
+            <span class="game-badge" aria-label="Beta version">BETA</span>
+            <h1 class="title-glow">天下太平</h1>
+            <div class="player-count" aria-live="polite">
+                <span id="player-count">-</span> players online
+            </div>
+            <p class="game-quote">"The art of war is of vital importance to the State." — Sun Tzu</p>
+            <p class="game-quote">“War is peace. Freedom is slavery. Ignorance is strength.”― George Orwell, 1984</p>
+
+            
+            <!-- <div class="game-modes" role="tablist" aria-label="Game modes">
+                <button class="game-mode active" id="mode-classic" role="tab" aria-selected="true" tabindex="0">Classic</button>
+                <button class="game-mode" id="mode-insane" role="tab" aria-selected="false" tabindex="-1">Insane</button>
+                <button class="game-mode" id="mode-beta" role="tab" aria-selected="false" tabindex="-1">Beta</button>
+            </div> -->
+            
+            <div class="game-mode-description" id="mode-description">
+                The original strategy game experience. Build armies, collect resources, and work toward world peace.
+            </div>
         
-        <div class="room-buttons">
-            <button class="room-button create" id="create-room-btn" data-i18n="create_room">创建房间</button>
-            <button class="room-button join" id="join-room-btn" data-i18n="join_room">加入房间</button>
+        <!-- <div class="matchmaking-options">
+                    <h3 class="matchmaking-title">Custom Game</h3>
+
+        <div class="room-buttons" id="room-buttons" style="display: none;">
+
+            <button class="room-button create" id="create-btn" aria-label="Create a new game room">Create Room</button>
+            <button class="room-button join" id="join-btn" aria-label="Join an existing game room">Join Room</button>
+        </div>
+        </div> -->
+        <div class="last-room-prompt" id="last-room-prompt" style="display: none;">
+            <p>You have an active room:</p>
+            <p id="last-room-id"></p>
+            <button class="room-button rejoin" id="rejoin-btn" aria-label="Rejoin your previous game">Rejoin Room</button>
         </div>
         
-        <!-- Last Room Prompt -->
-        <div id="last-room-prompt" class="last-room-prompt" style="display: none; margin-top: 20px;">
-            <p><span data-i18n="last_room_message">您有一个进行中的游戏房间</span>: <span id="last-room-id"></span></p>
-            <button class="room-button rejoin" id="rejoin-room-btn" data-i18n="rejoin_room">重新加入房间</button>
-        </div>
-        
-        <div id="error-message" class="message error" style="display: none; margin-top: 20px;" data-i18n="login_required">
-            请先登录后再创建房间
+        <!-- Matchmaking Options -->
+        <div class="matchmaking-options">
+            <h3 class="matchmaking-title">Matchmaking</h3>
+            <div class="matchmaking-methods">
+                <div class="matchmaking-card" id="quick-match">
+                    <div class="matchmaking-icon">⚡</div>
+                    <h4>Quick Match</h4>
+                    <p>Join the queue for instant matchmaking with players of similar skill</p>
+                </div>
+                
+                <div class="matchmaking-card" id="friend-battle">
+                    <div class="matchmaking-icon">👥</div>
+                    <h4>Friend Battle</h4>
+                    <p>Challenge your friends to a private match</p>
+                </div>
+                
+                <div class="matchmaking-card" id="custom-room">
+                    <div class="matchmaking-icon">🔧</div>
+                    <h4>Custom Room</h4>
+                    <p>Create a room with customized settings and rules</p>
+                </div>
+            </div>
+            </div>
         </div>
     </div>
+
+    <div id="language-selector"></div>
     
     <!-- Join Room Modal -->
-    <div class="join-room-modal" id="join-room-modal">
+    <div id="join-room-modal" class="join-room-modal" aria-labelledby="join-room-title" aria-hidden="true">
         <div class="join-room-content">
             <div class="join-room-header">
-                <h3 data-i18n="join_room">加入房间</h3>
-                <button class="join-room-close" id="close-modal">&times;</button>
+                <h3 id="join-room-title">Join Room</h3>
+                <span class="join-room-close" aria-label="Close">&times;</span>
             </div>
-            <div class="join-room-form">
-                <input type="text" class="room-id-input" id="room-id-input" data-i18n-placeholder="room_id" placeholder="Room ID">
-                <button class="join-button" id="submit-join-room">
-                    <span data-i18n="join_room">加入房间</span>
-                </button>
-            </div>
+            <form id="join-room-form" class="join-room-form">
+                <input type="text" class="room-id-input" id="room-id-input" placeholder="Enter Room ID" aria-label="Room ID" required>
+                <button type="submit" class="join-button" id="join-submit-btn">Join</button>
+            </form>
         </div>
     </div>
     
-    <script src="js/common.js"></script>
-    <script type="module" src="js/pages/index.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module">
+        import i18n from './js/i18n.js';
+        import { createLanguageSelector } from './js/language-selector.js';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            i18n.init();
+            createLanguageSelector('language-selector');
+            
+            // Connect to Socket.IO
+            const socket = io();
+            
+            // Get real-time user count updates
+            socket.on('userCountUpdate', (data) => {
+                document.getElementById('player-count').textContent = data.count.toLocaleString();
+            });
+            
+            // Initial user count
+            fetchUserCount();
+            
+            // Check if user is logged in
+            checkAuth();
+            
+            // Initialize UI interactions
+            initUI();
+            
+            // Set up game mode tabs
+            setupGameModeTabs();
+            
+            // Add visual animation when page loads
+            setTimeout(() => {
+                document.querySelector('h1').style.opacity = '1';
+                document.querySelector('h1').style.transform = 'translateY(0)';
+            }, 300);
+        });
+        
+        async function fetchUserCount() {
+            try {
+                const response = await fetch('/api/users/count');
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('player-count').textContent = data.count.toLocaleString();
+                }
+            } catch (error) {
+                console.error('Error fetching user count:', error);
+            }
+        }
+
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/me');
+                
+                if (response.ok) {
+                    const user = await response.json();
+                    showLoggedInUI(user);
+                    checkLastRoom();
+                }
+            } catch (error) {
+                console.error('Auth check error:', error);
+            }
+        }
+        
+        function showLoggedInUI(user) {
+            document.getElementById('auth-buttons').innerHTML = `
+                <a href="/dashboard.html" aria-label="View your dashboard">Dashboard</a>
+                <a href="#" id="logout-btn" aria-label="Log out of your account">Log out</a>
+            `;
+            
+            document.getElementById('logout-btn').addEventListener('click', async (e) => {
+                e.preventDefault();
+                
+                try {
+                    await fetch('/api/logout', { method: 'POST' });
+                    window.location.reload();
+                } catch (error) {
+                    console.error('Logout error:', error);
+                }
+            });
+            
+            document.getElementById('room-buttons').style.display = 'flex';
+        }
+        
+        async function checkLastRoom() {
+            try {
+                const response = await fetch('/api/user/last-room');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    if (data.hasLastRoom && data.roomId) {
+                        document.getElementById('last-room-id').textContent = `Room ID: ${data.roomId}`;
+                        document.getElementById('last-room-prompt').style.display = 'block';
+                        
+                        document.getElementById('rejoin-btn').addEventListener('click', () => {
+                            window.location.href = `/game-room.html?room=${data.roomId}`;
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Last room check error:', error);
+            }
+        }
+        
+        function initUI() {
+            const createBtn = document.getElementById('create-btn');
+            const joinBtn = document.getElementById('join-btn');
+            const joinModal = document.getElementById('join-room-modal');
+            const closeBtn = document.querySelector('.join-room-close');
+            
+            createBtn?.addEventListener('click', () => {
+                window.location.href = '/create-room.html';
+            });
+            
+            joinBtn?.addEventListener('click', () => {
+                joinModal.classList.add('active');
+                joinModal.setAttribute('aria-hidden', 'false');
+                document.getElementById('room-id-input').focus();
+                
+                // Trap focus in modal
+                trapFocus(joinModal);
+            });
+            
+            closeBtn?.addEventListener('click', () => {
+                joinModal.classList.remove('active');
+                joinModal.setAttribute('aria-hidden', 'true');
+                joinBtn.focus();
+            });
+            
+            document.getElementById('join-room-form')?.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const roomId = document.getElementById('room-id-input').value;
+                if (roomId.trim()) {
+                    window.location.href = `/game-room.html?room=${roomId}`;
+                }
+            });
+            
+            // Set up matchmaking cards
+            document.getElementById('quick-match')?.addEventListener('click', () => {
+                window.location.href = '/pairing.html';
+            });
+            
+            document.getElementById('friend-battle')?.addEventListener('click', () => {
+                window.location.href = '/friends.html';
+            });
+            
+            document.getElementById('custom-room')?.addEventListener('click', () => {
+                window.location.href = '/create-room.html';
+            });
+            
+            // Close modal on escape
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && joinModal.classList.contains('active')) {
+                    joinModal.classList.remove('active');
+                    joinModal.setAttribute('aria-hidden', 'true');
+                    joinBtn.focus();
+                }
+            });
+            
+            // Close modal if clicked outside
+            joinModal?.addEventListener('click', (e) => {
+                if (e.target === joinModal) {
+                    joinModal.classList.remove('active');
+                    joinModal.setAttribute('aria-hidden', 'true');
+                    joinBtn.focus();
+                }
+            });
+            
+            // Add click animation to title (like in games)
+            document.querySelector('.title-container')?.addEventListener('click', () => {
+                const title = document.querySelector('h1');
+                title.style.transform = 'scale(1.05)';
+                setTimeout(() => {
+                    title.style.transform = 'scale(1)';
+                }, 200);
+            });
+        }
+        
+        // Set up game mode tabs with descriptions
+        function setupGameModeTabs() {
+            const modes = document.querySelectorAll('.game-mode');
+            const descriptionEl = document.getElementById('mode-description');
+            
+            const modeDescriptions = {
+                'mode-classic': 'The original strategy game experience. Build armies, collect resources, and work toward world peace.',
+                'mode-insane': 'Faster gameplay, more powerful units, and chaotic battles! For players who enjoy intense, action-packed matches.',
+                'mode-beta': 'Experimental new features and game variants. Help us test new mechanics and provide feedback!'
+            };
+            
+            modes.forEach((mode, index) => {
+                mode.addEventListener('click', () => {
+                    // Update selection state
+                    modes.forEach(m => {
+                        m.classList.remove('active');
+                        m.setAttribute('aria-selected', 'false');
+                        m.setAttribute('tabindex', '-1');
+                    });
+                    
+                    mode.classList.add('active');
+                    mode.setAttribute('aria-selected', 'true');
+                    mode.setAttribute('tabindex', '0');
+                    
+                    // Update description
+                    descriptionEl.textContent = modeDescriptions[mode.id] || '';
+                    
+                    // Announce to screen reader
+                    announceToScreenReader(`Selected ${mode.textContent} game mode`);
+                });
+                
+                // Keyboard navigation
+                mode.addEventListener('keydown', (e) => {
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        const nextIndex = (index + 1) % modes.length;
+                        modes[nextIndex].focus();
+                    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        const prevIndex = (index - 1 + modes.length) % modes.length;
+                        modes[prevIndex].focus();
+                    }
+                });
+            });
+        }
+        
+        // Helper for focus trapping in modals
+        function trapFocus(element) {
+            const focusableElements = element.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            const firstElement = focusableElements[0];
+            const lastElement = focusableElements[focusableElements.length - 1];
+            
+            element.addEventListener('keydown', function(e) {
+                if (e.key === 'Tab') {
+                    if (e.shiftKey) {
+                        if (document.activeElement === firstElement) {
+                            lastElement.focus();
+                            e.preventDefault();
+                        }
+                    } else {
+                        if (document.activeElement === lastElement) {
+                            firstElement.focus();
+                            e.preventDefault();
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Announce messages to screen readers
+        function announceToScreenReader(message) {
+            const ariaLive = document.createElement('div');
+            ariaLive.setAttribute('aria-live', 'polite');
+            ariaLive.classList.add('sr-only');
+            document.body.appendChild(ariaLive);
+            
+            setTimeout(() => {
+                ariaLive.textContent = message;
+                
+                // Remove after announcement
+                setTimeout(() => {
+                    document.body.removeChild(ariaLive);
+                }, 3000);
+            }, 100);
+        }
+    </script>
 </body>
 </html> 

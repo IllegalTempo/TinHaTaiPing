@@ -5,6 +5,62 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="user_profile">个人中心 - 天下太平</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        .account-connections {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f8f8;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        
+        .connection-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .connection-item:last-child {
+            border-bottom: none;
+        }
+        
+        .connection-provider {
+            display: flex;
+            align-items: center;
+        }
+        
+        .connection-provider img {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-connected {
+            background-color: #4caf50;
+        }
+        
+        .status-disconnected {
+            background-color: #f44336;
+        }
+        
+        .connection-action {
+            margin-left: 10px;
+        }
+    </style>
 </head>
 <body>
     <div id="language-selector"></div>
@@ -23,7 +79,8 @@
             <div class="user-avatar" id="avatar">?</div>
             <div class="user-details">
                 <h3 id="username-display">加载中...</h3>
-                <div class="user-rank"><span data-i18n="rank">等级</span>: <span id="rank-display">-</span></div>
+                <div class="user-rank"><span data-i18n="role">角色</span>: <span id="role-display">-</span></div>
+                <div class="user-elo">ELO: <span id="elo-display">-</span></div>
             </div>
         </div>
         
@@ -32,8 +89,26 @@
             <p id="welcome-message"></p>
         </div>
         
+        <!-- Account Connections Section -->
+        <div class="account-connections">
+            <h3 data-i18n="account_connections">账号关联</h3>
+            <div class="connection-item">
+                <div class="connection-provider">
+                    <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg" alt="Google">
+                    <span>Google</span>
+                </div>
+                <div class="connection-status" id="google-connection-status">
+                    <div class="status-indicator status-disconnected"></div>
+                    <span data-i18n="not_connected">未关联</span>
+                    <a href="/auth/google/link" class="connection-action" data-i18n="connect">关联</a>
+                </div>
+            </div>
+        </div>
+        
         <div class="dashboard-actions">
             <button id="home-btn" data-i18n="back_to_home">返回首页</button>
+            <button id="friends-btn">Friends</button>
+            <button id="pairing-btn">Find a Match</button>
             <button class="logout" id="logout-btn" data-i18n="logout">退出登录</button>
             <button id="admin-btn" style="display:none;">Admin Panel</button>
         </div>
@@ -51,6 +126,16 @@
             // Set up home button click handler
             document.getElementById('home-btn').addEventListener('click', () => {
                 window.location.href = '/';
+            });
+            
+            // Set up friends button click handler
+            document.getElementById('friends-btn').addEventListener('click', () => {
+                window.location.href = '/friends.html';
+            });
+            
+            // Set up pairing button click handler
+            document.getElementById('pairing-btn').addEventListener('click', () => {
+                window.location.href = '/pairing.html';
             });
             
             // Set welcome message
@@ -74,6 +159,19 @@
             // Get i18n object from the module
             const i18n = window.i18n;
             
+            // Check URL params for messages
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('success') && urlParams.get('success') === 'google-linked') {
+                showMessage('Google account successfully linked', 'success');
+            } else if (urlParams.has('error')) {
+                const error = urlParams.get('error');
+                if (error === 'google-link-failed') {
+                    showMessage('Failed to link Google account', 'error');
+                } else if (error === 'link-session-expired') {
+                    showMessage('Session expired, please try linking again', 'error');
+                }
+            }
+
             try {
                 // Fetch user data
                 const response = await fetch('/api/user/me');
@@ -115,15 +213,42 @@
 
                     // Update user information
                     document.getElementById('username-display').textContent = data.username;
-                    document.getElementById('rank-display').textContent = data.rank;
+                    document.getElementById('role-display').textContent = data.role;
+                    document.getElementById('elo-display').textContent = data.elo;
                     document.getElementById('avatar').textContent = data.username.charAt(0).toUpperCase();
                     
-                    // Show admin panel button if user has admin rank
-                    if (data.rank >= 10) {
+                    // Show admin panel button if user is an admin
+                    if (data.role === "ADMIN") {
                         const adminBtn = document.getElementById('admin-btn');
                         adminBtn.style.display = 'block';
                         adminBtn.addEventListener('click', () => {
                             window.location.href = '/admin.html';
+                        });
+                    }
+                    
+                    // Check Google authentication status
+                    const googleStatusResponse = await fetch('/api/auth/google/status');
+                    const googleStatusData = await googleStatusResponse.json();
+                    
+                    const googleStatusElement = document.getElementById('google-connection-status');
+                    if (googleStatusData.isAuthenticated) {
+                        googleStatusElement.innerHTML = `
+                            <div class="status-indicator status-connected"></div>
+                            <span data-i18n="connected">已关联</span>
+                            <a href="#" class="connection-action" id="unlink-google" data-i18n="disconnect">解除关联</a>
+                        `;
+                        
+                        // Add unlink functionality if needed
+                        document.getElementById('unlink-google').addEventListener('click', async (e) => {
+                            e.preventDefault();
+                            try {
+                                await fetch('/api/auth/google/unlink', {
+                                    method: 'POST'
+                                });
+                                window.location.reload();
+                            } catch (error) {
+                                console.error('Failed to unlink Google account', error);
+                            }
                         });
                     }
                 } else {

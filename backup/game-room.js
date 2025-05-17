@@ -21,31 +21,16 @@ const MINERAL_VALUE = 75;
 document.addEventListener('DOMContentLoaded', async function() {
     // Get room ID and username from URL
     const urlParams = new URLSearchParams(window.location.search);
-    const roomId = urlParams.get('roomId') || urlParams.get('room');
+    const roomId = urlParams.get('roomId');
     const usernameFromUrl = urlParams.get('username');
     
-    // Check sessionStorage for room details (fallback from matchmaking)
-    const pendingRoomId = sessionStorage.getItem('pendingRoomId');
-    const pendingUsername = sessionStorage.getItem('pendingUsername');
-    const matchTimestamp = sessionStorage.getItem('matchTimestamp');
-    
-    // Calculate if the pending room is still valid (less than 1 minute old)
-    const isPendingRoomValid = matchTimestamp && 
-                              (Date.now() - parseInt(matchTimestamp)) < 60000;
-    
-    // Use pending room as fallback if URL param is missing
-    const finalRoomId = roomId || (isPendingRoomValid ? pendingRoomId : null);
-    
-    console.log(`Room load - URL roomId: ${roomId}, Pending roomId: ${pendingRoomId}, Final roomId: ${finalRoomId}`);
-    
-    if (!finalRoomId) {
-        console.error('No room ID provided');
+    if (!roomId) {
         window.location.href = '/';
         throw new Error('No room ID provided');
     }
 
     // Store room ID globally for reconnection
-    window.roomId = finalRoomId;
+    window.roomId = roomId;
     
     let currentUser = null;
     
@@ -106,11 +91,11 @@ document.addEventListener('DOMContentLoaded', async function() {
         const socket = io();
         
         // Set room ID display
-        document.getElementById('room-id').textContent = finalRoomId;
+        document.getElementById('room-id').textContent = roomId;
         
         // Set up copy room link button
         document.getElementById('copy-room-link').addEventListener('click', () => {
-            const url = `${window.location.origin}/game-room.html?roomId=${finalRoomId}`;
+            const url = `${window.location.origin}/game-room.html?roomId=${roomId}`;
             navigator.clipboard.writeText(url).then(() => {
                 alert(i18n.translate('link_copied'));
             }).catch(err => {
@@ -131,10 +116,10 @@ document.addEventListener('DOMContentLoaded', async function() {
 
         // First, check if the room exists
         socket.on('connect', () => {
-            console.log('Connected to socket server, checking room:', finalRoomId);
+            console.log('Connected to socket server, checking room:', roomId);
             
             // Check if this room exists
-            socket.emit('checkRoom', { roomId: finalRoomId });
+            socket.emit('checkRoom', { roomId: roomId });
         });
         
         // Handle reconnection events
@@ -149,90 +134,26 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         });
         
-        // Add a connection error handler to provide better debugging
-        socket.on('connect_error', (error) => {
-            console.error('Socket connection error:', error);
-            alert('Connection error. Please try refreshing the page.');
-        });
-        
         // Handle room check response
         socket.on('roomCheckResult', (data) => {
             console.log('Room check result:', data);
             
             if (data.exists) {
-                console.log('Room exists, joining:', finalRoomId);
+                console.log('Room exists, joining:', roomId);
                 // Room exists, join it
-                joinRoom();
+                socket.emit('joinRoom', {
+                    roomId: roomId,
+                    username: currentUser.username
+                });
             } else {
-                console.log('Room does not exist, creating new room:', finalRoomId);
-                // Room doesn't exist, create it by joining (server will create if needed)
-                joinRoom();
-                
-                // Also clear the lastRoom reference as it's stale
-                fetch('/api/user/clear-last-room', { method: 'POST' })
-                    .catch(err => console.error('Failed to clear last room:', err));
+                console.log('Room does not exist, creating new room:', roomId);
+                // Room doesn't exist, create it
+                socket.emit('createRoom', {
+                    roomId: roomId,
+                    username: currentUser.username
+                });
             }
         });
-        
-        // Function to join room with retry logic
-        function joinRoom(retryCount = 0) {
-            if (retryCount > 3) {
-                console.error('Failed to join room after multiple attempts');
-                alert('Failed to join the game room. Returning to homepage.');
-                window.location.href = '/';
-                return;
-            }
-            
-            console.log(`Joining room ${finalRoomId} (attempt ${retryCount + 1})`);
-            
-            socket.emit('joinRoom', {
-                roomId: finalRoomId,
-                username: currentUser.username
-            });
-            
-            // Set up a retry in case we don't get a response
-            let responseReceived = false;
-            
-            // Listen for a response but only for this attempt
-            const joinedHandler = (data) => {
-                responseReceived = true;
-                console.log('Successfully joined room:', data);
-                socket.off('roomJoined', joinedHandler);
-            };
-            
-            const errorHandler = (errorData) => {
-                responseReceived = true;
-                console.error('Error joining room:', errorData);
-                socket.off('error', errorHandler);
-                
-                if (errorData.message === 'room_not_found') {
-                    alert('Room not found. You will be redirected to the home page.');
-                    // Clear the lastRoom reference via API
-                    fetch('/api/user/clear-last-room', { method: 'POST' })
-                        .catch(err => console.error('Failed to clear last room:', err));
-                    window.location.href = '/';
-                } else if (retryCount < 3) {
-                    console.log(`Retrying after error: ${errorData.message}`);
-                    setTimeout(() => joinRoom(retryCount + 1), 1000);
-                } else {
-                    alert(`Error: ${errorData.message}. Returning to home page.`);
-                    window.location.href = '/';
-                }
-            };
-            
-            socket.on('roomJoined', joinedHandler);
-            socket.on('error', errorHandler);
-            
-            // Check if we never received a response
-            setTimeout(() => {
-                if (!responseReceived) {
-                    console.warn('No response to join request, retrying...');
-                    socket.off('roomJoined', joinedHandler);
-                    socket.off('error', errorHandler);
-                    joinRoom(retryCount + 1);
-                }
-            }, 3000);
-        }
         
         // Add specific handler for successful room join
         socket.on('roomJoined', (data) => {

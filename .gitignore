@@ -30,3 +30,6 @@ dist/
 .vscode/
 *.swp
 *.swo 
+
+# Google Api Client Secret
+client_secret_*.json

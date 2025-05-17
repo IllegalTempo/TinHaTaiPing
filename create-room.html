@@ -6,6 +6,153 @@
     <title data-i18n="title">天下太平</title>
     <link rel="stylesheet" href="styles.css">
     <script src="/socket.io/socket.io.js"></script>
+    <style>
+        .game-mode-selector {
+            margin: 20px auto;
+            max-width: 500px;
+        }
+        
+        .game-mode-title {
+            text-align: center;
+            margin-bottom: 15px;
+            color: #ecf0f1;
+        }
+        
+        .game-modes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: center;
+        }
+        
+        .game-mode-card {
+            background: rgba(41, 128, 185, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            width: 140px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+        
+        .game-mode-card:hover {
+            background: rgba(41, 128, 185, 0.5);
+            transform: translateY(-3px);
+        }
+        
+        .game-mode-card.selected {
+            border-color: #e67e22;
+            background: rgba(41, 128, 185, 0.6);
+        }
+        
+        .game-mode-card h4 {
+            color: #ffd38c;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        
+        .game-mode-card p {
+            font-size: 12px;
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+        
+        .game-mode-icon {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        .room-type-button {
+            font-size: 16px;
+            padding: 12px 30px;
+            margin-top: 20px;
+            margin: 10px;
+        }
+        
+        /* Join room modal styles */
+        .join-room-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .join-room-modal.active {
+            display: flex;
+        }
+        
+        .join-room-content {
+            background-color: #34495e;
+            border-radius: 8px;
+            padding: 20px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .join-room-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+        
+        .join-room-header h3 {
+            margin: 0;
+            color: #ecf0f1;
+        }
+        
+        .join-room-close {
+            color: #bdc3c7;
+            font-size: 24px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: color 0.2s;
+        }
+        
+        .join-room-close:hover {
+            color: #e74c3c;
+        }
+        
+        .join-room-form {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .room-id-input {
+            padding: 12px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            border: 1px solid #555;
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            font-size: 16px;
+        }
+        
+        .join-button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+        
+        .join-button:hover {
+            background-color: #2980b9;
+        }
+    </style>
 </head>
 <body>
     <div id="language-selector"></div>
@@ -20,8 +167,45 @@
     <div class="create-room-container">
         <h2 data-i18n="create_room">创建房间</h2>
         
+        <div class="game-mode-selector">
+            <h3 class="game-mode-title">Select Game Mode</h3>
+            <div class="game-modes">
+                <div class="game-mode-card selected" data-mode="classic">
+                    <div class="game-mode-icon">🏆</div>
+                    <h4>Classic</h4>
+                    <p>Traditional gameplay with balanced units and resources</p>
+                </div>
+                
+                <div class="game-mode-card" data-mode="insane">
+                    <div class="game-mode-icon">🔥</div>
+                    <h4>Insane</h4>
+                    <p>Fast-paced chaos with powerful units</p>
+                </div>
+                
+                <div class="game-mode-card" data-mode="beta">
+                    <div class="game-mode-icon">🧪</div>
+                    <h4>Beta</h4>
+                    <p>Experimental features and new gameplay elements</p>
+                </div>
+            </div>
+        </div>
+        
         <div class="room-type-container">
-            <button class="room-type-button" id="one-v-one-btn">1v1</button>
+            <button class="room-type-button" id="create-room-btn">Create Room</button>
+            <button class="room-type-button" id="join-room-btn">Join Room</button>
+        </div>
+        
+        <div id="join-room-modal" class="join-room-modal" aria-labelledby="join-room-title" aria-hidden="true">
+            <div class="join-room-content">
+                <div class="join-room-header">
+                    <h3 id="join-room-title">Join Room</h3>
+                    <span class="join-room-close" aria-label="Close">&times;</span>
+                </div>
+                <form id="join-room-form" class="join-room-form">
+                    <input type="text" class="room-id-input" id="room-id-input" placeholder="Enter Room ID" aria-label="Room ID" required>
+                    <button type="submit" class="join-button" id="join-submit-btn">Join</button>
+                </form>
+            </div>
         </div>
         
         <div id="error-message" class="message error" style="display: none; margin-top: 20px;">
@@ -45,9 +229,70 @@
             // Create language selector
             createLanguageSelector('language-selector');
             
-            const createRoomBtn = document.getElementById('one-v-one-btn');
+            // Set up button event listeners
+            const createRoomBtn = document.getElementById('create-room-btn');
+            const joinRoomBtn = document.getElementById('join-room-btn');
+            const joinModal = document.getElementById('join-room-modal');
+            const closeBtn = document.querySelector('.join-room-close');
             const errorMessage = document.getElementById('error-message');
+            const gameModeCards = document.querySelectorAll('.game-mode-card');
+            let selectedGameMode = 'classic';
             let currentUser = null;
+            
+            // Set up game mode selection
+            gameModeCards.forEach(card => {
+                card.addEventListener('click', () => {
+                    // Remove selected class from all cards
+                    gameModeCards.forEach(c => c.classList.remove('selected'));
+                    
+                    // Add selected class to clicked card
+                    card.classList.add('selected');
+                    
+                    // Update selected game mode
+                    selectedGameMode = card.dataset.mode;
+                });
+            });
+            
+            // Set up join room modal
+            joinRoomBtn?.addEventListener('click', () => {
+                joinModal.classList.add('active');
+                joinModal.setAttribute('aria-hidden', 'false');
+                document.getElementById('room-id-input').focus();
+                
+                // Trap focus in modal
+                trapFocus(joinModal);
+            });
+            
+            closeBtn?.addEventListener('click', () => {
+                joinModal.classList.remove('active');
+                joinModal.setAttribute('aria-hidden', 'true');
+                joinRoomBtn.focus();
+            });
+            
+            document.getElementById('join-room-form')?.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const roomId = document.getElementById('room-id-input').value;
+                if (roomId.trim()) {
+                    window.location.href = `/game-room.html?room=${roomId}&mode=${selectedGameMode}`;
+                }
+            });
+            
+            // Close modal on escape or outside click
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && joinModal.classList.contains('active')) {
+                    joinModal.classList.remove('active');
+                    joinModal.setAttribute('aria-hidden', 'true');
+                    joinRoomBtn.focus();
+                }
+            });
+            
+            joinModal?.addEventListener('click', (e) => {
+                if (e.target === joinModal) {
+                    joinModal.classList.remove('active');
+                    joinModal.setAttribute('aria-hidden', 'true');
+                    joinRoomBtn.focus();
+                }
+            });
             
             try {
                 // Check if user is logged in
@@ -89,7 +334,7 @@
                 console.error('Error checking auth status', error);
             }
             
-            // Set up 1v1 button event listener
+            // Set up create room button event listener
             createRoomBtn.addEventListener('click', async () => {
                 try {
                     // Check login status again when button is clicked
@@ -108,14 +353,37 @@
                     // Generate a unique room ID (same format as server)
                     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
                     
-                    // Redirect to game room page with room ID
-                    window.location.href = `/game-room.html?roomId=${roomId}&username=${encodeURIComponent(currentUser.username)}`;
+                    // Redirect to game room page with room ID and game mode
+                    window.location.href = `/game-room.html?roomId=${roomId}&username=${encodeURIComponent(currentUser.username)}&mode=${selectedGameMode}`;
                     
                 } catch (error) {
                     console.error('Error creating room:', error);
                     errorMessage.style.display = 'block';
                 }
             });
+            
+            // Helper function for modal focus trapping
+            function trapFocus(element) {
+                const focusableElements = element.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+                const firstElement = focusableElements[0];
+                const lastElement = focusableElements[focusableElements.length - 1];
+                
+                element.addEventListener('keydown', function(e) {
+                    if (e.key === 'Tab') {
+                        if (e.shiftKey) {
+                            if (document.activeElement === firstElement) {
+                                lastElement.focus();
+                                e.preventDefault();
+                            }
+                        } else {
+                            if (document.activeElement === lastElement) {
+                                firstElement.focus();
+                                e.preventDefault();
+                            }
+                        }
+                    }
+                });
+            }
         });
     </script>
 </body>

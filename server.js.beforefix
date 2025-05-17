@@ -29,12 +29,7 @@ if (process.env.NODE_ENV !== 'production') {
 function log(message, level = 'info', category = null) {
   if (level === 'error') {
     serverStats.errors++;
-    // Get stack trace for errors to help with debugging
-    const stack = new Error().stack.split('\n').slice(2).join('\n');
     console.error(`[ERROR] ${message}`);
-    if (VERBOSE_LOGGING) {
-      console.error(`Stack trace:\n${stack}`);
-    }
     return;
   }
   
@@ -61,19 +56,6 @@ function log(message, level = 'info', category = null) {
     logPrefix += ` [${category}]`;
   }
   
-  // Get the caller function name if possible
-  if (VERBOSE_LOGGING && level === 'debug') {
-    try {
-      const caller = new Error().stack.split('\n')[2].trim();
-      const functionName = caller.match(/at (\w+)/);
-      if (functionName && functionName[1]) {
-        logPrefix += ` [${functionName[1]}]`;
-      }
-    } catch (e) {
-      // Ignore errors getting caller info
-    }
-  }
-  
   console.log(`${logPrefix} ${message}`);
 }
 
@@ -82,8 +64,6 @@ const rooms = new Map(); // Store game rooms
 let onlineUserCount = 0; // Track number of connected users
 const connectedUsers = new Set(); // Track connected socket IDs
 const userRooms = new Map(); // Map socket IDs to room IDs
-const activeUserSockets = new Map(); // Map user IDs to socket IDs
-const userDisconnects = new Map(); // Track user disconnection counts
 
 // Game mode configurations
 const gameModes = {
@@ -132,7 +112,6 @@ const logCategories = {
     GAME_EVENTS: false,     // In-game actions (unit spawning, attacks, etc.)
     PLAYER_READY: false,    // Player ready status changes
     AUTH_EVENTS: false,     // Login, signup, auth events
-    TESTING: true,          // System test and debug functions
     ERRORS: true            // Always log errors (can't be disabled)
 };
 
@@ -270,7 +249,7 @@ passport.use(new GoogleStrategy({
                 // Create the new user
                 user = await prisma.user.create({
                     data: {
-                        username,
+                        username: finalUsername,
                         googleId: profile.id,
                         email: profile.emails[0].value,
                         password: '!GoogleAuth!', // Placeholder, can't be used to log in
@@ -316,128 +295,32 @@ io.on('connection', (socket) => {
     log(`User connected: ${socket.id}. Online users: ${onlineUserCount}`, 'info', 'CONNECTIONS');
     io.emit('userCount', { count: onlineUserCount });
     
-    // Associate socket with user session if authenticated
-    if (socket.request?.session?.userId) {
-        const userId = socket.request.session.userId;
-        // Store the socket ID for this user
-        if (!activeUserSockets.has(userId)) {
-            activeUserSockets.set(userId, new Set());
-        }
-        activeUserSockets.get(userId).add(socket.id);
-        log(`Associated socket ${socket.id} with user ${userId}`, 'debug', 'CONNECTIONS');
-        
-        // Check if user has an active room to rejoin
-        prisma.user.findUnique({
-            where: { id: userId }
-        }).then(async user => {
-            if (user && user.lastRoom) {
-                const roomId = user.lastRoom;
-                if (rooms.has(roomId)) {
-                    log(`User ${userId} has active room ${roomId}, checking if player in room`, 'info', 'CONNECTIONS');
-                    
-                    // Check if player is in this room
-                    const room = rooms.get(roomId);
-                    const playerInRoom = room.players.find(p => p.userId === userId);
-                    
-                    if (playerInRoom) {
-                        log(`Found player ${userId} in room ${roomId}, updating socket reference`, 'info', 'ROOM_EVENTS');
-                        
-                        // Update player info with new socket
-                        playerInRoom.socketId = socket.id;
-                        playerInRoom.disconnected = false;
-                        
-                        // Join the socket.io room
-                        socket.join(roomId);
-                        userRooms.set(socket.id, roomId);
-                        
-                        // Notify the client about the active room
-                        socket.emit('activeRoomDetected', { 
-                            roomId,
-                            autoJoin: true,
-                            isHost: playerInRoom.isHost
-                        });
-                        
-                        // Send updated player list to all in room
-                        io.to(roomId).emit('playerList', {
-                            players: room.players.filter(p => !p.disconnected).map(p => ({
-                                socketId: p.socketId,
-                                username: p.username,
-                                isHost: p.isHost,
-                                ready: p.ready
-                            })),
-                            gameMode: room.gameMode
-                        });
-                        
-                        log(`Auto-joined socket ${socket.id} to room ${roomId}`, 'info', 'ROOM_EVENTS');
-                    } else {
-                        // User is not a player in this room, clear lastRoom
-                        await prisma.user.update({
-                            where: { id: userId },
-                            data: { lastRoom: null }
-                        });
-                        log(`User ${userId} not a player in room ${roomId}, cleared lastRoom reference`, 'info', 'CONNECTIONS');
-                    }
-                } else {
-                    // Room no longer exists, clear lastRoom
-                    await prisma.user.update({
-                        where: { id: userId },
-                        data: { lastRoom: null }
-                    });
-                    log(`Room ${roomId} no longer exists, cleared lastRoom for user ${userId}`, 'info', 'CONNECTIONS');
-                }
-                
-                log(`Last room check for user ${userId}: roomId=${roomId}, exists=${rooms.has(roomId)}, isInRoom=${rooms.has(roomId) && rooms.get(roomId).players.some(p => p.userId === userId)}`);
-            }
-        }).catch(err => log(`Error checking for active rooms: ${err}`, 'error'));
-    }
-    
-    // Add test request handler for client-side testing
-    socket.on('testRequest', (data) => {
-        log(`Received test request from client ${socket.id}: ${JSON.stringify(data)}`, 'debug', 'TESTING');
-        // Echo the data back to the client
-        socket.emit('testResponse', { 
-            status: 'success', 
-            message: 'Test response from server',
-            receivedData: data,
-            timestamp: Date.now()
-        });
-    });
-    
-    // Handle pong responses for latency testing
-    socket.on('pong', (data) => {
-        log(`Pong from client ${socket.id}, round trip: ${data.roundTrip}ms`, 'debug', 'TESTING');
-        // Check if the latency is high
-        if (data.roundTrip > 200) {
-            log(`High latency detected for client ${socket.id}: ${data.roundTrip}ms`, 'warn', 'CONNECTIONS');
-        }
-    });
-    
     // Handle room check requests
-    socket.on('checkRoom', async (data) => {
+    socket.on('checkRoom', (data) => {
         try {
-            const { roomId } = data;
+        const { roomId } = data;
             if (!roomId) {
-                log(`Client ${socket.id} sent empty roomId in checkRoom!`, 'error');
                 socket.emit('roomCheckResult', { exists: false, error: 'No room ID provided' });
                 return;
             }
             
-            log(`Client ${socket.id} checking if room ${roomId} exists`, 'debug', 'SOCKET');
+            log(`Client ${socket.id} checking if room ${roomId} exists`, 'debug');
             const exists = rooms.has(roomId);
+            socket.emit('roomCheckResult', { exists });
             
-            // First, just tell the client if the room exists
-            if (!exists) {
-                log(`Room ${roomId} does not exist - sending roomCheckResult with exists=false to client ${socket.id}`, 'warn');
-                socket.emit('roomCheckResult', { exists: false, reason: 'Room not found in server memory' });
+            if (exists) {
+                log(`Room ${roomId} exists, notifying client`, 'debug');
+            } else {
+                log(`Room ${roomId} does not exist`, 'debug');
                 
                 // If user has this roomId as lastRoom, clear it
                 if (socket.request?.session?.userId) {
                     const userId = socket.request.session.userId;
                     prisma.user.findUnique({
                         where: { id: userId }
-                    }).then(userObj => {
-                        if (userObj && userObj.lastRoom === roomId) {
-                            log(`Room ${roomId} no longer exists, cleared lastRoom for user ${userId}`, 'info');
+                    }).then(user => {
+                        if (user && user.lastRoom === roomId) {
+                            log(`Clearing stale room reference ${roomId} for user ${userId}`, 'info');
                             prisma.user.update({
                                 where: { id: userId },
                                 data: { lastRoom: null }
@@ -445,202 +328,10 @@ io.on('connection', (socket) => {
                         }
                     }).catch(err => log(`Error checking user for lastRoom: ${err}`, 'error'));
                 }
-            } else {
-                log(`Room ${roomId} exists, notifying client ${socket.id}`, 'debug', 'SOCKET');
-                socket.emit('roomCheckResult', { exists: true });
-                
-                const room = rooms.get(roomId);
-                
-                // If the user is authenticated, check if they should be in this room
-                if (socket.request?.session?.userId) {
-                    const userId = socket.request.session.userId;
-                    const userObj = await prisma.user.findUnique({
-                        where: { id: userId }
-                    });
-                    
-                    log(`Authenticated user ${userId} checking room ${roomId}`, 'debug');
-                    
-                    // Find the player in the room
-                    let playerInRoom = room.players.find(p => p.userId === userId);
-                    
-                    if (playerInRoom) {
-                        log(`User ${userId} found as player in room ${roomId}, auto-joining socket`, 'info', 'ROOM_EVENTS');
-                        
-                        // Update player socket ID and connection status
-                        playerInRoom.socketId = socket.id;
-                        playerInRoom.disconnected = false;
-                        
-                        // Join the socket.io room
-            socket.join(roomId);
-                        userRooms.set(socket.id, roomId);
-                        
-                        // Send current player list
-                        io.to(roomId).emit('playerList', {
-                            players: room.players.filter(p => !p.disconnected).map(p => ({
-                                socketId: p.socketId,
-                                username: p.username,
-                                isHost: p.isHost,
-                                ready: p.ready
-                            })),
-                            gameMode: room.gameMode
-                        });
-                        
-                        // Notify the client that they've been auto-joined
-                        socket.emit('roomJoined', { 
-                            roomId,
-                            isHost: playerInRoom.isHost,
-                            autoJoined: true
-                        });
-                        
-                        log(`Auto-joined socket ${socket.id} to room ${roomId}`, 'info', 'ROOM_EVENTS');
-                        return; // Stop processing after successful auto-join
-                    }
-                    
-                    // If this is the user's last room (from matchmaking)
-                    if (userObj && userObj.lastRoom === roomId) {
-                        // Check if user is a player in this room
-                        let playerInRoom = room.players.find(p => p.userId === userId);
-                        
-                        if (playerInRoom) {
-                            log(`User ${userId} found as player in room ${roomId}, auto-joining socket`, 'info', 'ROOM_EVENTS');
-                            
-                            // Update player socket ID and connection status
-                            playerInRoom.socketId = socket.id;
-                            playerInRoom.disconnected = false;
-                            
-                            // Join the socket.io room
-                            socket.join(roomId);
-            userRooms.set(socket.id, roomId);
-            
-                            // Send current player list
-                            io.to(roomId).emit('playerList', {
-                                players: room.players.filter(p => !p.disconnected).map(p => ({
-                                    socketId: p.socketId,
-                                    username: p.username,
-                                    isHost: p.isHost,
-                                    ready: p.ready
-                                })),
-                                gameMode: room.gameMode
-                            });
-                            
-                            // Notify the client that they've been auto-joined
-                            socket.emit('roomJoined', { 
-                                roomId,
-                                isHost: playerInRoom.isHost,
-                                autoJoined: true
-                            });
-                            
-                            log(`Auto-joined socket ${socket.id} to room ${roomId}`, 'info', 'ROOM_EVENTS');
-                            return; // Stop processing after successful auto-join
-                        } else {
-                            // Look for a player entry without userId but matching the expected player position
-                            // This happens with matchmaking where we create room entries before sockets join
-                            if (room.matchId) {
-                                const match = await prisma.match.findUnique({
-                                    where: { id: room.matchId },
-                                    include: { player1: true, player2: true }
-                                });
-                                
-                                if (match) {
-                                    if (match.player1Id === userId || match.player2Id === userId) {
-                                        // Find player slot by position since we know this user should be in this match
-                                        const isPlayer1 = match.player1Id === userId;
-                                        const playerIndex = isPlayer1 ? 0 : 1;
-                                        
-                                        if (playerIndex < room.players.length) {
-                                            playerInRoom = room.players[playerIndex];
-                                            
-                                            // Update player with user data
-                                            playerInRoom.userId = userId;
-                                            // Use userObj which was previously retrieved in this function
-                                            playerInRoom.username = userObj.username;
-                                            playerInRoom.socketId = socket.id;
-                                            playerInRoom.disconnected = false;
-                                            
-                                            // Join the socket.io room
-                                            socket.join(roomId);
-                                            userRooms.set(socket.id, roomId);
-                                            
-                                            // Send current player list
-                                            io.to(roomId).emit('playerList', {
-                                                players: room.players.filter(p => !p.disconnected).map(p => ({
-                                                    socketId: p.socketId,
-                                                    username: p.username,
-                                                    isHost: p.isHost,
-                                                    ready: p.ready
-                                                })),
-                                                gameMode: room.gameMode
-                                            });
-                                            
-                                            // Notify the client that they've been auto-joined
-                                            socket.emit('roomJoined', { 
-                                                roomId,
-                                                isHost: playerInRoom.isHost,
-                                                autoJoined: true
-                                            });
-                                            
-                                            log(`Auto-joined socket ${socket.id} to match room ${roomId} as player ${playerIndex + 1}`, 'info', 'ROOM_EVENTS');
-                                            return; // Stop processing after successful auto-join
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // If we get here, no auto-join was performed
-                // NEW CODE: Try one more check - look for userId in any player in the room, even if not in the right index
-                if (socket.request?.session?.userId) {
-                    const userId = socket.request.session.userId;
-                    const userObj = await prisma.user.findUnique({
-                        where: { id: userId }
-                    });
-                    
-                    if (userObj && room && room.players) {
-                        for (let i = 0; i < room.players.length; i++) {
-                            // Check if this player slot is for this user but might be missing socket info
-                            if (room.players[i].userId === userId && (!room.players[i].socketId || room.players[i].disconnected)) {
-                                log(`Found player ${userId} in room ${roomId} at index ${i}, updating socket info`, 'info', 'ROOM_EVENTS');
-                                
-                                // Update player socket info
-                                room.players[i].socketId = socket.id;
-                                room.players[i].disconnected = false;
-                                
-                                // Add socket to room
-                                socket.join(roomId);
-                                userRooms.set(socket.id, roomId);
-                                
-                                // Send current player list
-                                io.to(roomId).emit('playerList', {
-                                    players: room.players.filter(p => !p.disconnected).map(p => ({
-                                        socketId: p.socketId,
-                                        username: p.username,
-                                        isHost: p.isHost,
-                                        ready: p.ready
-                                    })),
-                                    gameMode: room.gameMode
-                                });
-                                
-                                // Notify client they've been auto-joined
-                                socket.emit('roomJoined', { 
-                                    roomId,
-                                    isHost: room.players[i].isHost,
-                                    autoJoined: true
-                                });
-                                
-                                log(`Auto-joined socket ${socket.id} to room ${roomId} for user ${userId}`, 'info', 'ROOM_EVENTS');
-                                return; // Exit after successful join
-                            }
-                        }
-                    }
-                }
-                
-                log(`No auto-join performed for room ${roomId}, client will need to call joinRoom explicitly`, 'debug', 'ROOM_EVENTS');
             }
         } catch (error) {
             log(`Error checking room: ${error}`, 'error');
-            socket.emit('roomCheckResult', { exists: false, error: 'Server error', details: error.message });
+            socket.emit('roomCheckResult', { exists: false, error: 'Server error' });
         }
     });
     
@@ -650,29 +341,26 @@ io.on('connection', (socket) => {
         onlineUserCount = Math.max(0, onlineUserCount - 1);
         connectedUsers.delete(socket.id);
         
-        // Remove socket from user mapping
-        if (socket.request?.session?.userId) {
-            const userId = socket.request.session.userId;
-            if (activeUserSockets.has(userId)) {
-                activeUserSockets.get(userId).delete(socket.id);
-                // If no sockets left for this user, clean up
-                if (activeUserSockets.get(userId).size === 0) {
-                    activeUserSockets.delete(userId);
-                    log(`Removed last socket for user ${userId}`, 'debug', 'CONNECTIONS');
-        } else {
-                    log(`User ${userId} still has ${activeUserSockets.get(userId).size} active connections`, 'debug', 'CONNECTIONS');
-                }
-            }
-            
-            // Handle abandonment for game in progress
-            checkPlayerDisconnect(socket.id, userId);
-        }
-        
-        // Remove the user from the room mapping
+        // Handle user leaving a room
         const roomId = userRooms.get(socket.id);
         if (roomId) {
-            // Handle room-specific disconnect logic
-            handleRoomDisconnect(socket.id, roomId);
+            const room = rooms.get(roomId);
+            if (room) {
+                // Find the player
+                const playerIndex = room.players.findIndex(p => p.socketId === socket.id);
+                if (playerIndex !== -1) {
+                    // Mark player as disconnected
+                    room.players[playerIndex].disconnected = true;
+                    room.players[playerIndex].socketId = null;
+                    
+                    // Notify other players in the room
+                    socket.to(roomId).emit('playerList', {
+                        players: room.players.filter(p => !p.disconnected || p.socketId === socket.id)
+                    });
+                    
+                    log(`Player ${socket.id} disconnected from room ${roomId}`, 'info', 'CONNECTIONS');
+                }
+            }
             
             // Remove the user from the room mapping
             userRooms.delete(socket.id);
@@ -681,104 +369,6 @@ io.on('connection', (socket) => {
         log(`User disconnected: ${socket.id}. Online users: ${onlineUserCount}`, 'info', 'CONNECTIONS');
         io.emit('userCount', { count: onlineUserCount });
     });
-    
-    // Handle user disconnect from a room
-    function handleRoomDisconnect(socketId, roomId) {
-        const room = rooms.get(roomId);
-        if (!room) return;
-        
-        // Find the player
-        const playerIndex = room.players.findIndex(p => p.socketId === socketId);
-        if (playerIndex === -1) return;
-        
-        // Get the user ID
-        const userId = room.players[playerIndex].userId;
-        
-        // Mark player as disconnected
-        room.players[playerIndex].disconnected = true;
-        room.players[playerIndex].socketId = null;
-        room.players[playerIndex].disconnectedAt = Date.now();
-        
-        // Increment user disconnect count if game has started
-        if (room.Started) {
-            // Track consecutive disconnects
-            if (!userDisconnects.has(userId)) {
-                userDisconnects.set(userId, {
-                    count: 0,
-                    lastDisconnect: null,
-                    warnings: 0,
-                    tempBanUntil: null
-                });
-            }
-            
-            const disconnectInfo = userDisconnects.get(userId);
-            disconnectInfo.count += 1;
-            disconnectInfo.lastDisconnect = Date.now();
-            
-            log(`Player ${userId} disconnected from active game. Consecutive disconnects: ${disconnectInfo.count}`, 'warn', 'CONNECTIONS');
-            
-            // Handle disconnect thresholds
-            if (disconnectInfo.count >= 5) {
-                // Apply temporary ban - 30 minutes
-                const banDuration = 30 * 60 * 1000; // 30 minutes in milliseconds
-                disconnectInfo.tempBanUntil = Date.now() + banDuration;
-                
-                // Store ban status in database
-                prisma.user.update({
-                    where: { id: userId },
-                    data: { 
-                        banStatus: "TEMP_BANNED",
-                        banExpiration: new Date(disconnectInfo.tempBanUntil)
-                    }
-                }).catch(err => log(`Error updating user ban status: ${err}`, 'error'));
-                
-                log(`Player ${userId} has been temporarily banned for 30 minutes due to excessive disconnections`, 'warn', 'CONNECTIONS');
-                
-                // Force game abandonment
-                abandonGame(roomId, userId);
-            } else if (disconnectInfo.count >= 3) {
-                // Issue warning
-                disconnectInfo.warnings += 1;
-                log(`WARNING: Player ${userId} has disconnected ${disconnectInfo.count} times. Further disconnects will result in a temporary ban.`, 'warn', 'CONNECTIONS');
-                
-                // Start abandon timer (shorter for repeat offenders)
-                const abandonDelay = disconnectInfo.warnings > 1 ? 30000 : 60000; // 30 seconds or 60 seconds
-                startAbandonTimer(roomId, playerIndex, abandonDelay);
-        } else {
-                // Start abandon timer
-                startAbandonTimer(roomId, playerIndex, 120000); // 2 minutes
-            }
-        }
-        
-        // Notify other players in the room
-        io.to(roomId).emit('playerList', {
-            players: room.players.filter(p => !p.disconnected || p.socketId === socketId)
-        });
-        
-        // Notify about the disconnection
-        io.to(roomId).emit('playerDisconnected', {
-            username: room.players[playerIndex].username,
-            userId: room.players[playerIndex].userId,
-            isHost: room.players[playerIndex].isHost,
-            disconnectCount: userDisconnects.has(userId) ? userDisconnects.get(userId).count : 1
-        });
-        
-        log(`Player ${socketId} disconnected from room ${roomId}`, 'info', 'CONNECTIONS');
-    }
-    
-    // Function to check if player should be disconnected from a game
-    function checkPlayerDisconnect(socketId, userId) {
-        // Find all rooms where this user is a player
-        for (const [roomId, room] of rooms.entries()) {
-            const playerIndex = room.players.findIndex(p => p.userId === userId);
-            if (playerIndex !== -1) {
-                // Only disconnect if this was the socket associated with the player
-                if (room.players[playerIndex].socketId === socketId) {
-                    handleRoomDisconnect(socketId, roomId);
-                }
-            }
-        }
-    }
     
     // Handle joining a room
     socket.on('joinRoom', async (data) => {
@@ -810,114 +400,93 @@ io.on('connection', (socket) => {
                         where: { id: userId },
                         data: { lastRoom: roomId }
                     });
-                    log(`Updated user ${userId} (${username || user.username}) lastRoom to ${roomId}`, 'debug', 'ROOM_EVENTS');
+                    log(`Updated user ${userId} (${username}) lastRoom to ${roomId}`, 'debug', 'ROOM_EVENTS');
                 }
             }
             
-            // Check if already in a room - leave it first
-            const currentRoom = userRooms.get(socket.id);
-            if (currentRoom && currentRoom !== roomId) {
-                // Leave current room first
-                log(`Socket ${socket.id} leaving current room ${currentRoom} before joining ${roomId}`, 'debug', 'ROOM_EVENTS');
-                socket.leave(currentRoom);
-                
-                // Update player status in the old room if needed
-                const oldRoom = rooms.get(currentRoom);
-                if (oldRoom) {
-                    const playerInOldRoom = oldRoom.players.find(p => p.socketId === socket.id);
-                    if (playerInOldRoom) {
-                        playerInOldRoom.disconnected = true;
-                        playerInOldRoom.socketId = null;
+            // Check if room exists
+            let room = rooms.get(roomId);
+            
+            // Create room if it doesn't exist
+            if (!room) {
+                log(`Room ${roomId} doesn't exist, creating new room`, 'info', 'ROOM_EVENTS');
+                room = {
+                    Started: false,
+                    gameMode: 'classic', // Default game mode
+                players: [{
+                    socketId: socket.id,
+                        username: username || 'Player1',
+                        isHost: true,
+                        userId: userId,
+                        disconnected: false,
+                        ready: true  // Host is automatically ready
+                    }],
+                    serverGameState: {
+                        started: false,
+                        gold: {},
+                        units: [],
+                        hp: {},
+                        lastUpdateTime: Date.now()
                     }
+                };
+                
+                rooms.set(roomId, room);
+                log(`Room created: ${roomId} with host ${username || socket.id}`, 'info', 'ROOM_EVENTS');
+            } else {
+                // Check if player is already in the room
+                const existingPlayer = room.players.find(p => 
+                    p.userId === userId || 
+                    p.socketId === socket.id || 
+                    (username && p.username === username)
+                );
+                
+                if (existingPlayer) {
+                    // Update existing player's socket ID and connection status
+                    existingPlayer.socketId = socket.id;
+                    existingPlayer.disconnected = false;
+                    log(`Player ${username || socket.id} reconnected to room ${roomId}`, 'info', 'ROOM_EVENTS');
+                } else {
+                    // Add new player to the room
+                    room.players.push({ 
+                        socketId: socket.id,
+                        username: username || `Player${room.players.length + 1}`,
+                        isHost: false,
+                        userId: userId,
+                        disconnected: false
+                    });
+                    log(`Player ${username || socket.id} joined room ${roomId}`, 'info', 'ROOM_EVENTS');
                 }
             }
             
-            // Join the new room
-        socket.join(roomId);
+            // Join the socket.io room
+            socket.join(roomId);
             userRooms.set(socket.id, roomId);
             
-            // Check if the room exists in our data structure
-            if (!rooms.has(roomId)) {
-                // Create a new room
-                log(`Creating new room ${roomId}`, 'info', 'ROOM_EVENTS');
-                rooms.set(roomId, {
-                    id: roomId,
-                    created: Date.now(),
-                    players: [],
-                    gameMode: 'classic',
-                    Started: false
-                });
-            }
+            log(`Socket ${socket.id} joined room ${roomId}`, 'debug', 'ROOM_EVENTS');
             
-            const room = rooms.get(roomId);
-            
-            // Check if player is already in the room (might be reconnecting)
-            const existingPlayerIndex = room.players.findIndex(p => p.userId === userId);
-            if (existingPlayerIndex !== -1) {
-                log(`Player ${userId} reconnecting to room ${roomId}`, 'info', 'ROOM_EVENTS');
-                
-                // Update player info
-                room.players[existingPlayerIndex].socketId = socket.id;
-                room.players[existingPlayerIndex].disconnected = false;
-                room.players[existingPlayerIndex].username = username || room.players[existingPlayerIndex].username;
-                
-                // Notify the client of successful join
-                socket.emit('roomJoined', {
-                    roomId,
-                    isHost: room.players[existingPlayerIndex].isHost
-                });
-                
-                // Reset disconnect count if this was a prompted reconnection
-                if (userDisconnects.has(userId)) {
-                    const disconnectInfo = userDisconnects.get(userId);
-                    if (disconnectInfo.count < 5) { // Don't reset if they were temp banned
-                        disconnectInfo.count = 0;
-                        disconnectInfo.warnings = 0;
-                        log(`Reset disconnect count for user ${userId} after successful reconnection`, 'info', 'CONNECTIONS');
-                    }
-                }
-                
-                // Clear abandon timer if any
-                if (room.players[existingPlayerIndex].abandonTimer) {
-                    clearTimeout(room.players[existingPlayerIndex].abandonTimer);
-                    room.players[existingPlayerIndex].abandonTimer = null;
-                    log(`Cleared abandon timer for player ${userId} in room ${roomId}`, 'info', 'GAME_EVENTS');
-                }
-        } else {
-                // Add player to the room
-                const isHost = room.players.length === 0;
-            room.players.push({ 
-                socketId: socket.id,
-                    userId: userId,
-                    username: username || (userId ? `User ${userId}` : `Guest ${socket.id.substr(0, 5)}`),
-                    isHost,
-                    ready: false,
-                    disconnected: false
-                });
-                
-                log(`Added player ${userId || 'guest'} to room ${roomId}`, 'info', 'ROOM_EVENTS');
-                
-                // Notify the client of successful join
-                socket.emit('roomJoined', {
-                    roomId,
-                    isHost
-                });
-            }
-            
-            // Send current player list to all in room
+            // Send room data to all clients in the room
             io.to(roomId).emit('playerList', {
-                players: room.players.filter(p => !p.disconnected).map(p => ({
-                    socketId: p.socketId,
-                    username: p.username,
-                    isHost: p.isHost,
-                    ready: p.ready
-                })),
+                players: room.players.filter(p => !p.disconnected),
                 gameMode: room.gameMode
             });
             
+            // Notify the client that they've joined successfully
+            socket.emit('roomJoined', {
+                roomId,
+                isHost: room.players.find(p => p.socketId === socket.id)?.isHost || false,
+                gameMode: room.gameMode
+            });
+            
+            log(`Emitted roomJoined event to client ${socket.id} for room ${roomId}`, 'debug', 'ROOM_EVENTS');
+            
+            // If the game has already started, notify the client
+            if (room.Started) {
+                socket.emit('gameStarted', { gameState: room.gameState });
+                log(`Game already started, sending gameState to new player ${socket.id}`, 'debug', 'ROOM_EVENTS');
+            }
         } catch (error) {
             log(`Error joining room: ${error}`, 'error');
-            socket.emit('error', { message: 'Server error when joining room' });
+                    socket.emit('error', { message: 'Failed to join room' });
         }
     });
     
@@ -938,8 +507,8 @@ io.on('connection', (socket) => {
         const unit = room.serverGameState.units[unitIndex];
         if (unit.playerId !== socket.id) {
             log(`Rejected move - Player ${socket.id} tried to move unit owned by ${unit.playerId}`, 'warn');
-            return;
-        }
+                return;
+            }
             
         // Get game mode config for movement speed limits
         const gameMode = room.gameMode || 'classic';
@@ -965,7 +534,7 @@ io.on('connection', (socket) => {
                 x: oldX, 
                 y: oldY
             });
-            return;
+                return;
         }
         
         // Update position in server state
@@ -982,7 +551,7 @@ io.on('connection', (socket) => {
         // Broadcast move to all clients
         io.to(roomId).emit('unitMoved', { unitId, x, y });
     });
-    
+
     // Handle unit attack events
     socket.on('unitAttack', (data) => {
         const { attackerUnitId, targetUnitId, damage } = data;
@@ -1035,15 +604,15 @@ io.on('connection', (socket) => {
             });
         }
     });
-    
+
     // Add handler for setting game mode
     socket.on('setGameMode', (data) => {
-            const roomId = userRooms.get(socket.id);
-            if (!roomId) {
-                socket.emit('error', { message: 'not_in_room' });
-                return;
-            }
-            
+        const roomId = userRooms.get(socket.id);
+        if (!roomId) {
+            socket.emit('error', { message: 'not_in_room' });
+            return;
+        }
+        
         const room = rooms.get(roomId);
         if (!room) {
             socket.emit('error', { message: 'room_not_found' });
@@ -1072,53 +641,20 @@ io.on('connection', (socket) => {
         
         log(`Game mode changed to ${newMode} in room ${roomId}`, 'info');
     });
-    
+
     // Handle ready status
     socket.on('toggleReady', () => {
-        const roomId = userRooms.get(socket.id);
-        if (!roomId) {
+            const roomId = userRooms.get(socket.id);
+            if (!roomId) {
             log(`Socket ${socket.id} tried to toggle ready status but is not in a room`, 'error');
-            
-            // Check if user is authenticated and has a lastRoom
-            if (socket.request?.session?.userId) {
-                const userId = socket.request.session.userId;
-                
-                // Try to find any rooms this user should be in
-                for (const [rid, room] of rooms.entries()) {
-                    const playerInRoom = room.players.find(p => p.userId === userId);
-                    if (playerInRoom) {
-                        log(`Found room ${rid} where user ${userId} should be. Auto-joining socket to room.`, 'info', 'ROOM_EVENTS');
-                        
-                        // Update player info
-                        playerInRoom.socketId = socket.id;
-                        playerInRoom.disconnected = false;
-                        
-                        // Join socket to room
-                        socket.join(rid);
-                        userRooms.set(socket.id, rid);
-                        
-                        // Force retry of the toggleReady after fixing the room association
-                        setTimeout(() => {
-                            log(`Retrying toggleReady for socket ${socket.id} after auto-join to room ${rid}`, 'info');
-                            socket.emit('retryReady', {});
-                        }, 500);
-                        
-                        return;
-                    }
-                }
+                socket.emit('error', { message: 'not_in_room' });
+                return;
             }
             
-            socket.emit('error', { message: 'not_in_room' });
-            return;
-        }
-        
         const room = rooms.get(roomId);
         if (!room) {
             log(`Socket ${socket.id} tried to toggle ready in room ${roomId}, but room doesn't exist`, 'error');
             socket.emit('error', { message: 'room_not_found' });
-            
-            // Clean up inconsistent state
-            userRooms.delete(socket.id);
             return;
         }
         
@@ -1126,29 +662,6 @@ io.on('connection', (socket) => {
         const player = room.players.find(p => p.socketId === socket.id);
         if (!player) {
             log(`Socket ${socket.id} not found in room ${roomId} players list`, 'error');
-            
-            // Check if user is authenticated and try to find their player entry by userId
-            if (socket.request?.session?.userId) {
-                const userId = socket.request.session.userId;
-                const playerByUserId = room.players.find(p => p.userId === userId);
-                
-                if (playerByUserId) {
-                    log(`Found player by userId ${userId} in room ${roomId}, updating socket reference`, 'info');
-                    
-                    // Update player info
-                    playerByUserId.socketId = socket.id;
-                    playerByUserId.disconnected = false;
-                    
-                    // Force retry of the toggleReady after fixing the player association
-                    setTimeout(() => {
-                        log(`Retrying toggleReady for socket ${socket.id} after fixing player reference`, 'info');
-                        socket.emit('retryReady', {});
-                    }, 500);
-                    
-                    return;
-                }
-            }
-            
             socket.emit('error', { message: 'player_not_found' });
             return;
         }
@@ -1172,7 +685,7 @@ io.on('connection', (socket) => {
         log(`Player ${player.username} (${socket.id}) set ready status to true in room ${roomId}`, 'info', 'PLAYER_READY');
         
         // Notify all players of the updated status
-                io.to(roomId).emit('playerList', {
+        io.to(roomId).emit('playerList', {
             players: room.players.filter(p => !p.disconnected).map(p => ({
                 socketId: p.socketId,
                 username: p.username,
@@ -1311,7 +824,7 @@ io.on('connection', (socket) => {
             }
         }
     });
-    
+
     // Handle game start request
     socket.on('startGame', () => {
         const roomId = userRooms.get(socket.id);
@@ -1411,109 +924,59 @@ io.on('connection', (socket) => {
         startMiningIncome(roomId, modeConfig.miningRate);
     });
     
-    // Handle game end and ELO updates
-    socket.on('gameCompleted', async (data) => {
-        const roomId = userRooms.get(socket.id);
-        if (!roomId) {
-            socket.emit('error', { message: 'not_in_room' });
-            return;
-        }
-        
+    // Add this function to handle mining income for the room
+    function startMiningIncome(roomId, miningRate) {
         const room = rooms.get(roomId);
-        if (!room) {
-            socket.emit('error', { message: 'room_not_found' });
+        if (!room || !room.Started) return;
+        
+        // Clear any existing interval
+        if (room.miningInterval) {
+            clearInterval(room.miningInterval);
+        }
+        
+        // Set up mining income interval
+        room.miningInterval = setInterval(() => {
+            if (!room || !room.Started) {
+                clearInterval(room.miningInterval);
             return;
         }
         
-        // Validate the winner is in this room
-        const { winnerId } = data;
-        const winnerPlayer = room.players.find(p => p.userId === parseInt(winnerId));
-        
-        if (!winnerPlayer) {
-            log(`Invalid winner ID ${winnerId} for room ${roomId}`, 'error');
-            socket.emit('error', { message: 'invalid_winner' });
-            return;
-        }
-        
-        // Get match ID from room
-        const matchId = room.matchId;
-        if (!matchId) {
-            log(`No match ID found for room ${roomId}`, 'error');
-            socket.emit('error', { message: 'match_not_found' });
-            return;
-        }
-        
-        log(`Game completed in room ${roomId}, winner: ${winnerPlayer.username} (${winnerId})`, 'info', 'GAME_EVENTS');
-        
-        // Update ELO ratings
-        const eloResult = await updateEloRatings(matchId, parseInt(winnerId));
-        
-        if (!eloResult) {
-            log(`Failed to update ELO ratings for match ${matchId}`, 'error');
-            socket.emit('error', { message: 'elo_update_failed' });
-            return;
-        }
-        
-        // Notify all players in the room about the game results and ELO changes
-        io.to(roomId).emit('gameResults', {
-            winner: eloResult.winner,
-            loser: eloResult.loser,
-            matchId: matchId
-        });
-        
-        log(`Game results sent to room ${roomId}`, 'debug', 'GAME_EVENTS');
-        
-        // Reset disconnect count for players who completed the game normally
-        for (const player of room.players) {
-            if (player.userId && userDisconnects.has(player.userId)) {
-                const disconnectInfo = userDisconnects.get(player.userId);
+            // Add mining income for all connected players
+            const activePlayers = room.players.filter(p => !p.disconnected && p.socketId);
+            
+            activePlayers.forEach(player => {
+                // Calculate mining income based on miner units
+                let baseIncome = miningRate;
+                const playerMiners = room.serverGameState.units.filter(u => 
+                    u.type === 'miner' && u.playerId === player.socketId
+                );
                 
-                // Only reset if they have fewer than 5 disconnects (not banned)
-                if (disconnectInfo.count < 5) {
-                    log(`Resetting disconnect count for player ${player.userId} after normal game completion`, 'debug');
-                    disconnectInfo.count = 0;
-                    disconnectInfo.warnings = 0;
-                    
-                    // Update in database as well
-                    prisma.user.update({
-                        where: { id: player.userId },
-                        data: { 
-                            disconnectCount: 0,
-                            lastDisconnectAt: null
-                        }
-                    }).catch(err => log(`Error updating user disconnect count: ${err}`, 'error'));
-                }
-            }
-        }
-        
-        // Mark the room as completed
-        room.completed = true;
-        
-        // Schedule room cleanup after a delay to allow players to see results
-        setTimeout(() => {
-            if (rooms.has(roomId)) {
-                log(`Cleaning up completed room ${roomId}`, 'debug', 'ROOM_EVENTS');
-                rooms.delete(roomId);
-            }
-        }, 300000); // 5 minutes
-    });
-    
-    // Handle game mode info request
-    socket.on('getGameModes', () => {
-        // Send all available game modes to the client
-        const modeInfo = Object.keys(gameModes).map(key => ({
-            id: key,
-            name: gameModes[key].name,
-            description: gameModes[key].description,
-            initialGold: gameModes[key].initialGold,
-            miningRate: gameModes[key].miningRate,
-            availableUnits: Object.keys(gameModes[key].unitStats)
-        }));
-        
-        socket.emit('gameModeList', { modes: modeInfo });
-        log(`Sent game mode info to client ${socket.id}`, 'debug');
-    });
-    
+                // Each miner adds 50% of the base mining rate
+                const minerBonus = playerMiners.length * (baseIncome * 0.5);
+                const totalIncome = baseIncome + minerBonus;
+                
+                // Update gold in both game state and server state
+                room.gameState.gold[player.socketId] += totalIncome;
+                room.serverGameState.gold[player.socketId] += totalIncome;
+                
+                // Notify player of gold update
+                io.to(player.socketId).emit('goldUpdate', {
+                    playerId: player.socketId,
+                    gold: room.gameState.gold[player.socketId],
+                    delta: totalIncome
+                });
+            });
+            
+            // Send synchronized gold update to all players in the room (for UI)
+        io.to(roomId).emit('goldSyncUpdate', {
+                players: activePlayers.map(p => ({
+                    playerId: p.socketId,
+                    gold: room.gameState.gold[p.socketId]
+                }))
+        });
+        }, 5000); // Gold income every 5 seconds
+    }
+
     // Handle unit spawning
     socket.on('spawnUnit', (data) => {
         const roomId = userRooms.get(socket.id);
@@ -1591,204 +1054,144 @@ io.on('connection', (socket) => {
         });
         
         log(`Player ${socket.id} spawned ${unitType} in room ${roomId}`, 'debug', 'GAME_EVENTS');
-        });
     });
-
-// Function to start abandon timer for disconnected players
-function startAbandonTimer(roomId, playerIndex, delay) {
-        const room = rooms.get(roomId);
-        if (!room) return;
     
-    // Clear any existing timer
-    if (room.players[playerIndex].abandonTimer) {
-        clearTimeout(room.players[playerIndex].abandonTimer);
-    }
-    
-    log(`Starting abandon timer for player in room ${roomId}. Game will be abandoned in ${delay/1000} seconds if player doesn't reconnect`, 'info', 'GAME_EVENTS');
-    
-    // Set new timer
-    room.players[playerIndex].abandonTimer = setTimeout(() => {
-        // Check if the room still exists
-        if (!rooms.has(roomId)) return;
-        
-        // Get updated room state
-        const currentRoom = rooms.get(roomId);
-        
-        // Check if player is still disconnected
-        if (currentRoom.players[playerIndex] && currentRoom.players[playerIndex].disconnected) {
-            // Abandon the game
-            const userId = currentRoom.players[playerIndex].userId;
-            log(`Abandon timer expired for player ${userId} in room ${roomId}. Game will be abandoned.`, 'warn', 'GAME_EVENTS');
-            
-            abandonGame(roomId, userId);
-        }
-    }, delay);
-}
-
-// Function to abandon a game and apply penalties
-async function abandonGame(roomId, abandoningUserId) {
-        const room = rooms.get(roomId);
-    if (!room || !room.Started) return;
-    
-    log(`Game in room ${roomId} abandoned by player ${abandoningUserId}`, 'warn', 'GAME_EVENTS');
-    
-    // Find the opponent (non-abandoning player)
-    const abandoningPlayer = room.players.find(p => p.userId === abandoningUserId);
-    const opponentPlayer = room.players.find(p => p.userId !== abandoningUserId);
-    
-    if (!opponentPlayer) {
-        log(`Could not find opponent for abandoning player ${abandoningUserId}`, 'error');
-        return;
-    }
-    
-    // Get match ID from room
-    const matchId = room.matchId;
-    if (!matchId) {
-        log(`No match ID found for room ${roomId}`, 'error');
-        return;
-    }
-    
-    try {
-        // Mark match as completed with opponent as winner
-        await prisma.match.update({
-            where: { id: matchId },
-            data: {
-                completed: true,
-                winnerId: opponentPlayer.userId,
-                winnerByDefault: true,
-                abandonedAt: new Date(),
-                abandonedBy: abandoningUserId
-            }
-        });
-        
-        // Calculate and apply severe ELO penalty for abandoning
-        const abandoningUser = await prisma.user.findUnique({
-            where: { id: abandoningUserId },
-            select: { id: true, username: true, elo: true }
-        });
-        
-        const opponentUser = await prisma.user.findUnique({
-            where: { id: opponentPlayer.userId },
-            select: { id: true, username: true, elo: true }
-        });
-        
-        if (!abandoningUser || !opponentUser) {
-            log(`Could not find users for abandoned match`, 'error');
+    // Handle game end and ELO updates
+    socket.on('gameCompleted', async (data) => {
+        const roomId = userRooms.get(socket.id);
+        if (!roomId) {
+            socket.emit('error', { message: 'not_in_room' });
             return;
         }
         
-        // Calculate ELO penalties - more severe for abandoning player
-        const eloLoss = Math.min(40, Math.max(15, Math.floor(abandoningUser.elo * 0.04))); // 4% of ELO, min 15, max 40
-        const eloGain = Math.floor(eloLoss * 0.75); // Winner gets 75% of loser's loss
-        
-        // Apply ELO changes
-        await prisma.user.update({
-            where: { id: abandoningUserId },
-            data: { 
-                elo: Math.max(1000, abandoningUser.elo - eloLoss) // Prevent going below 1000
-            }
-        });
-        
-        await prisma.user.update({
-            where: { id: opponentPlayer.userId },
-            data: { 
-                elo: opponentUser.elo + eloGain
-            }
-        });
-        
-        log(`Applied abandon penalty: ${abandoningUser.username} (${abandoningUser.elo} → ${abandoningUser.elo - eloLoss}, -${eloLoss}), ${opponentUser.username} awarded ${eloGain} points`, 'info', 'MATCHMAKING');
-        
-        // Update match record with ELO changes
-        await prisma.match.update({
-            where: { id: matchId },
-            data: {
-                winnerEloChange: eloGain,
-                loserEloChange: -eloLoss
-            }
-        });
-        
-        // Notify the opponent that they won by default
-        if (opponentPlayer.socketId) {
-            io.to(opponentPlayer.socketId).emit('gameAbandoned', {
-                abandoningPlayer: {
-                    username: abandoningUser.username,
-                    id: abandoningUserId
-                },
-                eloChange: eloGain,
-                newElo: opponentUser.elo + eloGain
-            });
+        const room = rooms.get(roomId);
+        if (!room) {
+            socket.emit('error', { message: 'room_not_found' });
+            return;
         }
+        
+        // Validate the winner is in this room
+        const { winnerId } = data;
+        const winnerPlayer = room.players.find(p => p.userId === parseInt(winnerId));
+        
+        if (!winnerPlayer) {
+            log(`Invalid winner ID ${winnerId} for room ${roomId}`, 'error');
+            socket.emit('error', { message: 'invalid_winner' });
+            return;
+        }
+        
+        // Get match ID from room
+        const matchId = room.matchId;
+        if (!matchId) {
+            log(`No match ID found for room ${roomId}`, 'error');
+            socket.emit('error', { message: 'match_not_found' });
+            return;
+        }
+        
+        log(`Game completed in room ${roomId}, winner: ${winnerPlayer.username} (${winnerId})`, 'info', 'GAME_EVENTS');
+        
+        // Update ELO ratings
+        const eloResult = await updateEloRatings(matchId, parseInt(winnerId));
+        
+        if (!eloResult) {
+            log(`Failed to update ELO ratings for match ${matchId}`, 'error');
+            socket.emit('error', { message: 'elo_update_failed' });
+            return;
+        }
+        
+        // Notify all players in the room about the game results and ELO changes
+        io.to(roomId).emit('gameResults', {
+            winner: eloResult.winner,
+            loser: eloResult.loser,
+            matchId: matchId
+        });
+        
+        log(`Game results sent to room ${roomId}`, 'debug', 'GAME_EVENTS');
         
         // Mark the room as completed
         room.completed = true;
-        room.abandoned = true;
-        room.abandonedBy = abandoningUserId;
         
-        // Schedule room cleanup
+        // Schedule room cleanup after a delay to allow players to see results
         setTimeout(() => {
             if (rooms.has(roomId)) {
-                log(`Cleaning up abandoned room ${roomId}`, 'debug', 'ROOM_EVENTS');
+                log(`Cleaning up completed room ${roomId}`, 'debug', 'ROOM_EVENTS');
                 rooms.delete(roomId);
             }
-        }, 60000); // 1 minute
+        }, 300000); // 5 minutes
+    });
+    
+    // Handle game mode info request
+    socket.on('getGameModes', () => {
+        // Send all available game modes to the client
+        const modeInfo = Object.keys(gameModes).map(key => ({
+            id: key,
+            name: gameModes[key].name,
+            description: gameModes[key].description,
+            initialGold: gameModes[key].initialGold,
+            miningRate: gameModes[key].miningRate,
+            availableUnits: Object.keys(gameModes[key].unitStats)
+        }));
         
-    } catch (error) {
-        log(`Error handling game abandonment: ${error}`, 'error');
-    }
-}
-
-// Add this function to handle mining income for the room
-function startMiningIncome(roomId, miningRate) {
+        socket.emit('gameModeList', { modes: modeInfo });
+        log(`Sent game mode info to client ${socket.id}`, 'debug');
+    });
+    
+    // Improved setGameMode handler
+    socket.on('setGameMode', (data) => {
+        const roomId = userRooms.get(socket.id);
+        if (!roomId) {
+            socket.emit('error', { message: 'not_in_room' });
+            return;
+        }
+        
         const room = rooms.get(roomId);
-    if (!room || !room.Started) return;
-    
-    // Clear any existing interval
-        if (room.miningInterval) {
-            clearInterval(room.miningInterval);
-    }
-    
-    // Set up mining income interval
-    room.miningInterval = setInterval(() => {
-        if (!room || !room.Started) {
-            clearInterval(room.miningInterval);
-        return;
-    }
-    
-        // Add mining income for all connected players
-        const activePlayers = room.players.filter(p => !p.disconnected && p.socketId);
+        if (!room) {
+            socket.emit('error', { message: 'room_not_found' });
+            return;
+        }
         
-        activePlayers.forEach(player => {
-            // Calculate mining income based on miner units
-            let baseIncome = miningRate;
-            const playerMiners = room.serverGameState.units.filter(u => 
-                u.type === 'miner' && u.playerId === player.socketId
-            );
-            
-            // Each miner adds 50% of the base mining rate
-            const minerBonus = playerMiners.length * (baseIncome * 0.5);
-            const totalIncome = baseIncome + minerBonus;
-            
-            // Update gold in both game state and server state
-            room.gameState.gold[player.socketId] += totalIncome;
-            room.serverGameState.gold[player.socketId] += totalIncome;
-            
-            // Notify player of gold update
-            io.to(player.socketId).emit('goldUpdate', {
-                playerId: player.socketId,
-                gold: room.gameState.gold[player.socketId],
-                delta: totalIncome
+        // Check if sender is the host
+        const player = room.players.find(p => p.socketId === socket.id);
+        if (!player || !player.isHost) {
+            socket.emit('error', { message: 'only_host_can_change_mode' });
+            return;
+        }
+        
+        // Check if game already started
+        if (room.Started) {
+            socket.emit('error', { message: 'cannot_change_mode_after_start' });
+            return;
+        }
+        
+        // Update game mode if it's valid
+        const newMode = data.mode || 'classic';
+        if (!gameModes[newMode]) {
+            socket.emit('error', { message: 'invalid_game_mode' });
+            return;
+        }
+        
+        room.gameMode = newMode;
+        
+        // Provide full game mode info to clients
+        const modeInfo = {
+            id: newMode,
+            name: gameModes[newMode].name,
+            description: gameModes[newMode].description,
+            initialGold: gameModes[newMode].initialGold,
+            miningRate: gameModes[newMode].miningRate,
+            unitStats: gameModes[newMode].unitStats,
+            availableUnits: Object.keys(gameModes[newMode].unitStats)
+        };
+        
+        // Notify all players in the room
+        io.to(roomId).emit('gameModeChanged', { 
+            gameMode: newMode,
+            modeInfo: modeInfo
+        });
+        
+        log(`Game mode changed to ${newMode} in room ${roomId}`, 'info');
     });
 });
-        
-        // Send synchronized gold update to all players in the room (for UI)
-    io.to(roomId).emit('goldSyncUpdate', {
-            players: activePlayers.map(p => ({
-                playerId: p.socketId,
-                gold: room.gameState.gold[p.socketId]
-            }))
-    });
-    }, 5000); // Gold income every 5 seconds
-}
 
 // ===== Middleware Functions =====
 
@@ -2069,33 +1472,6 @@ app.post('/api/login', async (req, res) => {
     // Check if user is banned
     if (user.banStatus === "BANNED") {
       return res.status(403).json({ error: '您的账户已被封禁' });
-    }
-    
-    // Check if user is temporarily banned
-    if (user.banStatus === "TEMP_BANNED" && user.banExpiration) {
-      const banExpiration = new Date(user.banExpiration);
-      const now = new Date();
-      
-      if (banExpiration > now) {
-        // Calculate remaining ban time
-        const remainingTimeMs = banExpiration.getTime() - now.getTime();
-        const remainingMinutes = Math.ceil(remainingTimeMs / (60 * 1000));
-        
-        return res.status(403).json({ 
-          error: `您的账户暂时被禁用，剩余时间：${remainingMinutes}分钟`,
-          banExpiration: banExpiration.toISOString(),
-          remainingMinutes
-        });
-      } else {
-        // Ban has expired, clear the ban status
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { 
-            banStatus: "CLEAR",
-            banExpiration: null
-          }
-        });
-      }
     }
     
     // Set session
@@ -2640,182 +2016,328 @@ async function tryMatchmaking(userId) {
       return null;
     }
     
-    log(`Processing matchmaking for user ${userId} (${userQueue.user.username}, ELO: ${userQueue.user.elo})`, 'info', 'MATCHMAKING');
+    const userElo = userQueue.user.elo;
+    const username = userQueue.user.username;
+    log(`Looking for match for user ${userId} (${username}) with ELO ${userElo}`, 'info', 'MATCHMAKING');
     
-    // Find other users in queue that match ELO criteria
+    // Determine matchmaking mode based on ELO ranges
+    // If no specific ranges are set, assume "balanced" mode
+    // If wide range (eloMin is low or eloMax is high), assume "fast" mode
+    // If tight range, assume "precise" mode
+    let matchmakingMode = "balanced";
+    
+    if (userQueue.eloMin !== null && userQueue.eloMax !== null) {
+      const range = userQueue.eloMax - userQueue.eloMin;
+      if (range <= 100) {
+        matchmakingMode = "precise";
+      } else if (range >= 300) {
+        matchmakingMode = "fast";
+      }
+    } else if (userQueue.eloMin === null && userQueue.eloMax === null) {
+      // No preference specified, use balanced
+      matchmakingMode = "balanced";
+    }
+    
+    log(`Determined matchmaking mode: ${matchmakingMode} for user ${username}`, 'debug', 'MATCHMAKING');
+    
+    // Calculate acceptable ELO range based on time in queue and matchmaking mode
+    const queueTime = Date.now() - userQueue.joinedAt.getTime();
+    const queueTimeMinutes = queueTime / (1000 * 60);
+    
+    // Set initial ELO range based on matchmaking mode
+    let baseEloRange, expansionRate, maxRange;
+    
+    switch (matchmakingMode) {
+      case "precise":
+        baseEloRange = 50;    // Start with very tight range
+        expansionRate = 25;   // Expand slowly
+        maxRange = 200;       // Max moderate range
+        break;
+      case "fast":
+        baseEloRange = 200;   // Start with wide range
+        expansionRate = 100;  // Expand quickly
+        maxRange = 600;       // Very wide maximum range
+        break;
+      case "balanced":
+      default:
+        baseEloRange = 100;   // Moderate initial range
+        expansionRate = 50;   // Moderate expansion
+        maxRange = 400;       // Moderate maximum range
+    }
+    
+    // Calculate current range based on time in queue
+    let eloRange = Math.min(baseEloRange + (queueTimeMinutes * expansionRate), maxRange);
+    
+    // Respect user-defined limits if stricter than calculated range
+    const minElo = userQueue.eloMin !== null 
+      ? Math.max(userQueue.eloMin, userElo - eloRange)
+      : userElo - eloRange;
+      
+    const maxElo = userQueue.eloMax !== null 
+      ? Math.min(userQueue.eloMax, userElo + eloRange)
+      : userElo + eloRange;
+    
+    log(`ELO matching range for user ${userId} (${matchmakingMode} mode): ${minElo} to ${maxElo} (waited ${queueTimeMinutes.toFixed(2)} minutes)`, 'debug', 'MATCHMAKING');
+    
+    // Find potential matches based on calculated ELO range
     const potentialMatches = await prisma.pairingQueue.findMany({
       where: {
-        userId: { not: userId }, // Exclude this user
-        // Apply ELO range filtering if specified
-        ...(userQueue.eloMin ? { 
-          user: { 
-            elo: { gte: userQueue.eloMin } 
-          } 
-        } : {}),
-        ...(userQueue.eloMax ? { 
-          user: { 
-            elo: { lte: userQueue.eloMax } 
-          } 
-        } : {})
+        userId: { not: userId },
+        user: { 
+          elo: {
+            gte: minElo,
+            lte: maxElo
+          }
+        }
       },
-      include: {
-        user: true
-      },
-      orderBy: {
-        joinedAt: 'asc' // Match with users who have been waiting longest
-      }
+      include: { user: true },
+      orderBy: [
+        // For precise mode, prioritize closest ELO matches
+        // For fast mode, prioritize longest wait time
+        // For balanced mode, use a mixed approach
+        ...(matchmakingMode === "precise" ? [{ user: { elo: 'asc' }}] : []),
+        ...(matchmakingMode === "fast" ? [{ joinedAt: 'asc' }] : []),
+        ...(matchmakingMode === "balanced" ? [{ user: { elo: 'asc' }}, { joinedAt: 'asc' }] : [])
+      ]
     });
     
     log(`Found ${potentialMatches.length} potential matches for user ${userId}`, 'debug', 'MATCHMAKING');
     
-    if (potentialMatches.length === 0) {
-      log(`No suitable matches found for user ${userId}`, 'info', 'MATCHMAKING');
-      return null;
+    // Filter matches further based on matched user's ELO preferences
+    const compatibleMatches = potentialMatches.filter(match => {
+      const matchEloMin = match.eloMin;
+      const matchEloMax = match.eloMax;
+      
+      // Check if this user's ELO falls within the match's ELO range (if specified)
+      const withinMatchMinElo = matchEloMin === null || userElo >= matchEloMin;
+      const withinMatchMaxElo = matchEloMax === null || userElo <= matchEloMax;
+      
+      return withinMatchMinElo && withinMatchMaxElo;
+    });
+    
+    if (compatibleMatches.length === 0) {
+      log(`No compatible matches found for user ${userId}`, 'debug', 'MATCHMAKING');
+      return null; // No matches found
     }
     
-    // Find best match based on ELO proximity
-    const player1 = userQueue.user;
-    let bestMatch = potentialMatches[0];
-    let smallestEloDiff = Math.abs(player1.elo - bestMatch.user.elo);
+    // Get the match based on mode (closest ELO for precise, longest wait for fast)
+    let match;
     
-    for (const match of potentialMatches) {
-      const eloDiff = Math.abs(player1.elo - match.user.elo);
-      if (eloDiff < smallestEloDiff) {
-        smallestEloDiff = eloDiff;
-        bestMatch = match;
-      }
+    if (matchmakingMode === "precise") {
+      // For precise mode, find the closest ELO match
+      match = compatibleMatches.reduce((closest, current) => {
+        const closestDiff = Math.abs(closest.user.elo - userElo);
+        const currentDiff = Math.abs(current.user.elo - userElo);
+        return currentDiff < closestDiff ? current : closest;
+      }, compatibleMatches[0]);
+    } else if (matchmakingMode === "fast") {
+      // For fast mode, just take the first (which should be oldest in queue)
+      match = compatibleMatches[0];
+    } else {
+      // For balanced mode, use a weighted approach (70% ELO closeness, 30% wait time)
+      match = compatibleMatches.reduce((best, current) => {
+        // Normalize ELO difference (0-1 scale where 0 is perfect match)
+        const bestEloDiff = Math.abs(best.user.elo - userElo) / maxRange;
+        const currentEloDiff = Math.abs(current.user.elo - userElo) / maxRange;
+        
+        // Normalize wait time (0-1 scale where 1 is longest wait)
+        const bestWaitTime = (Date.now() - new Date(best.joinedAt).getTime()) / (10 * 60 * 1000); // Normalize to 10 minutes
+        const currentWaitTime = (Date.now() - new Date(current.joinedAt).getTime()) / (10 * 60 * 1000);
+        
+        // Calculate weighted score (lower is better)
+        const bestScore = (bestEloDiff * 0.7) - (bestWaitTime * 0.3);
+        const currentScore = (currentEloDiff * 0.7) - (currentWaitTime * 0.3);
+        
+        return currentScore < bestScore ? current : best;
+      }, compatibleMatches[0]);
     }
     
-    const player2 = bestMatch.user;
+    const eloDifference = Math.abs(userElo - match.user.elo);
     
-    log(`Selected match: ${player1.username} (${player1.elo}) vs ${player2.username} (${player2.elo}), ELO diff: ${smallestEloDiff}`, 'info', 'MATCHMAKING');
+    log(`Found compatible match: user ${userId} (${username}, ELO ${userElo}) with user ${match.userId} (${match.user.username}, ELO ${match.user.elo})`, 'info', 'MATCHMAKING');
+    log(`ELO difference: ${eloDifference} points using ${matchmakingMode} mode`, 'debug', 'MATCHMAKING');
     
-    // Create a match record
+    // Create a game room with a more recognizable ID format (like agar.io and chess.com)
+    // Format: ELO_RANGE-GAME_TYPE-RANDOM_ID
+    const eloRangeBracket = Math.round(userElo / 100) * 100; // Round to nearest hundred
+    const gameType = "1v1";
+    const randomId = Math.random().toString(36).substring(2, 5).toUpperCase();
+    const roomId = `${eloRangeBracket}-${gameType}-${randomId}`;
+    
+    // Get default game mode configuration
+    const gameMode = 'classic'; // Default game mode for matchmaking
+    
+    // Use default values if gameModes is not available
+    let modeConfig = {
+        initialGold: 500,
+        miningRate: 50,
+        unitStats: {
+            miner: { health: 100, speed: 1.0, cost: 100 },
+            soldier: { health: 200, damage: 10, speed: 1.0, cost: 200 },
+            barrier: { health: 300, cost: 50 }
+        }
+    };
+    
+    // Try to get the game mode config if available
+    try {
+        if (typeof gameModes !== 'undefined' && gameModes[gameMode]) {
+            modeConfig = gameModes[gameMode];
+            log(`Using ${gameMode} game mode configuration`, 'debug');
+        } else {
+            log(`GameModes not defined or ${gameMode} mode not found, using default config`, 'warn');
+        }
+    } catch (e) {
+        log(`Error accessing gameModes: ${e}, using default config`, 'error');
+    }
+    
+    // Create match record in database
     const dbMatch = await prisma.match.create({
       data: {
-        player1Id: player1.id,
-        player2Id: player2.id,
+        player1Id: userId,
+        player2Id: match.userId,
         completed: false,
-        gameMode: 'classic' // Default game mode
+        gameMode: gameMode  // Add the gameMode field
       }
     });
+    log(`Created match record in database, ID: ${dbMatch.id}`, 'debug', 'MATCHMAKING');
     
-    log(`Created match record ID ${dbMatch.id} for ${player1.username} vs ${player2.username}`, 'debug', 'MATCHMAKING');
-    
-    // Remove both players from the queue
+    // Remove both users from the queue
     await prisma.pairingQueue.deleteMany({
       where: {
-        userId: {
-          in: [player1.id, player2.id]
-        }
+        userId: { in: [userId, match.userId] }
       }
     });
+    log(`Removed users ${userId} and ${match.userId} from matchmaking queue`, 'debug', 'MATCHMAKING');
     
-    log(`Removed players ${player1.id} and ${player2.id} from matchmaking queue`, 'debug', 'MATCHMAKING');
-    
-    // Create a room for the match
-    const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    
-    // Check if we have active sockets for both players
-    const player1Sockets = activeUserSockets.get(player1.id);
-    const player2Sockets = activeUserSockets.get(player2.id);
-    
-    if (!player1Sockets || player1Sockets.size === 0) {
-      log(`Warning: No active sockets found for player ${player1.username} (${player1.id})`, 'warn', 'MATCHMAKING');
-    }
-    
-    if (!player2Sockets || player2Sockets.size === 0) {
-      log(`Warning: No active sockets found for player ${player2.username} (${player2.id})`, 'warn', 'MATCHMAKING');
-    }
-    
-    // Create the room without socket IDs initially
-    rooms.set(roomId, {
-      id: roomId,
-      matchId: dbMatch.id,
+    // Properly initialize room data structure
+    const room = {
+      Started: false,
+      gameMode: gameMode,
+      matchId: dbMatch.id,  // Store match ID for ELO updates later
       players: [
         {
-          userId: player1.id,
-          username: player1.username,
-          socketId: null, // Will be set when they join
+          socketId: null, // Will be set when they join the room
+          username: userQueue.user.username,
           isHost: true,
+          userId: userId,
+          disconnected: false,
           ready: false,
-          disconnected: false
+          elo: userElo
         },
         {
-          userId: player2.id,
-          username: player2.username,
-          socketId: null, // Will be set when they join
+          socketId: null, // Will be set when they join the room
+          username: match.user.username,
           isHost: false,
+          userId: match.userId,
+          disconnected: false,
           ready: false,
-          disconnected: false
+          elo: match.user.elo
         }
       ],
-      gameMode: 'classic',
-      Started: false,
-      gameState: null,
-      serverGameState: null
-    });
-    
-    log(`Created room ${roomId} for match ${dbMatch.id}`, 'info', 'MATCHMAKING');
-    
-    // Get first available socket for each player
-    let player1SocketId = null;
-    let player2SocketId = null;
-    
-    if (player1Sockets && player1Sockets.size > 0) {
-      player1SocketId = Array.from(player1Sockets)[0];
-    }
-    
-    if (player2Sockets && player2Sockets.size > 0) {
-      player2SocketId = Array.from(player2Sockets)[0];
-    }
-    
-    // Notify the players they've been matched
-    if (player1SocketId) {
-      const socket1 = io.sockets.sockets.get(player1SocketId);
-      if (socket1) {
-        // Update socket room association and player info in room
-        rooms.get(roomId).players[0].socketId = player1SocketId;
-        socket1.join(roomId);
-        userRooms.set(player1SocketId, roomId);
-        
-        socket1.emit('matchFound', { roomId, opponent: player2.username });
-        log(`Notified player ${player1.username} of match and joined to room ${roomId}`, 'debug', 'MATCHMAKING');
+      // Initialize server-side game state structure
+      serverGameState: {
+        started: false,
+        gold: {},
+        units: [],
+        hp: {},
+        lastUpdateTime: Date.now()
+      },
+      // Add match metadata
+      matchData: {
+        matchId: dbMatch.id,
+        createdAt: new Date(),
+        mode: gameMode,
+        eloDifference: eloDifference,
+        matchmakingMode: matchmakingMode
       }
-    }
-    
-    if (player2SocketId) {
-      const socket2 = io.sockets.sockets.get(player2SocketId);
-      if (socket2) {
-        // Update socket room association and player info in room
-        rooms.get(roomId).players[1].socketId = player2SocketId;
-        socket2.join(roomId);
-        userRooms.set(player2SocketId, roomId);
-        
-        socket2.emit('matchFound', { roomId, opponent: player1.username });
-        log(`Notified player ${player2.username} of match and joined to room ${roomId}`, 'debug', 'MATCHMAKING');
-      }
-    }
-    
-    // Update both players' lastRoom in the database
-    await prisma.user.update({
-      where: { id: player1.id },
-      data: { lastRoom: roomId }
-    });
-    
-    await prisma.user.update({
-      where: { id: player2.id },
-      data: { lastRoom: roomId }
-    });
-    
-    log(`Updated lastRoom to ${roomId} for both players`, 'debug', 'MATCHMAKING');
-    log(`Match created successfully between ${player1.username} and ${player2.username} in room ${roomId}`, 'success', 'MATCHMAKING');
-    
-    return {
-      player1,
-      player2,
-      roomId
     };
+    
+    // Store room in memory
+    rooms.set(roomId, room);
+    log(`Created room ${roomId} in memory with ${room.players.length} players`, 'info', 'ROOM_EVENTS');
+    
+    // Create result object
+    const matchResult = {
+      roomId,
+      player1: {
+        id: userId,
+        elo: userElo,
+        username: userQueue.user.username
+      },
+      player2: {
+        id: match.userId,
+        elo: match.user.elo,
+        username: match.user.username
+      },
+      matchmakingMode
+    };
+    
+    // Update both users' lastRoom
+    await prisma.user.update({
+      where: { id: userId },
+      data: { lastRoom: roomId }
+    });
+    
+    await prisma.user.update({
+      where: { id: match.userId },
+      data: { lastRoom: roomId }
+    });
+    log(`Updated lastRoom to ${roomId} for both players`, 'debug', 'MATCHMAKING');
+    
+    // Find all connected sockets for both users
+    const player1Sockets = [];
+    const player2Sockets = [];
+    
+    // Optimized socket search - check if each socket belongs to either player
+    io.sockets.sockets.forEach(socket => {
+      const sessionUserId = socket.request?.session?.userId;
+      if (sessionUserId === userId) {
+        player1Sockets.push(socket.id);
+      } else if (sessionUserId === match.userId) {
+        player2Sockets.push(socket.id);
+      }
+    });
+    
+    log(`Notifying matched players: ${player1Sockets.length} sockets for player1, ${player2Sockets.length} sockets for player2`, 'debug', 'MATCHMAKING');
+    
+    // Emit to all sockets for player 1
+    if (player1Sockets.length > 0) {
+      player1Sockets.forEach(socketId => {
+        io.to(socketId).emit('matchFound', {
+          roomId,
+          opponent: match.user.username,
+          opponentElo: match.user.elo,
+          isHost: true,
+          eloDifference,
+          matchmakingMode
+        });
+        log(`Sent matchFound event to socket ${socketId} for player 1`, 'debug', 'MATCHMAKING');
+      });
+    } else {
+      log(`No active sockets found for player 1 (${userId})`, 'warn', 'MATCHMAKING');
+    }
+    
+    // Emit to all sockets for player 2
+    if (player2Sockets.length > 0) {
+      player2Sockets.forEach(socketId => {
+        io.to(socketId).emit('matchFound', {
+          roomId,
+          opponent: userQueue.user.username,
+          opponentElo: userElo,
+          isHost: false,
+          eloDifference,
+          matchmakingMode
+        });
+        log(`Sent matchFound event to socket ${socketId} for player 2`, 'debug', 'MATCHMAKING');
+      });
+    } else {
+      log(`No active sockets found for player 2 (${match.userId})`, 'warn', 'MATCHMAKING');
+    }
+    
+    log(`Match created: ${userQueue.user.username} (${userId}, ELO ${userElo}) vs ${match.user.username} (${match.userId}, ELO ${match.user.elo}) using ${matchmakingMode} mode`, 'success', 'MATCHMAKING');
+    serverStats.matchesMade++;
+    
+    return matchResult;
   } catch (error) {
     log(`Error in matchmaking: ${error}`, 'error');
     return null;
@@ -3087,8 +2609,8 @@ app.post('/api/pairing/check-matches', isAuthenticated, async (req, res) => {
 });
 
 console.log('=========== SERVER INITIALIZATION STARTED ===========');
-    
-    httpServer.listen(PORT, () => {
+
+httpServer.listen(PORT, () => {
   console.log(`=========== SERVER STARTED ON PORT ${PORT} ===========`);
   log(`Server is running on http://localhost:${PORT}`, 'success');
   log(`Website "天下太平" is now available!`, 'success');
@@ -3404,838 +2926,19 @@ const commands = {
         }
     },
     
+    // ... other commands ...
+    
     test: {
         description: 'Run system tests',
         execute: async (args) => {
-            if (args.length > 0) {
-                const testName = args[0].toLowerCase();
-                log(`Running test: ${testName}`, 'info');
-                
-                switch (testName) {
-                    case 'matchmaking':
-                        return await testMatchmaking();
-                    case 'database':
-                        const results = {};
-                        await testDatabaseConnection(results);
-                        return results.passed > 0;
-                    case 'auth':
-                        const authResults = {};
-                        await testUserAuth(authResults);
-                        return authResults.passed > 0;
-                    case 'elo':
-                        const eloResults = {};
-                        await testEloRatings(eloResults);
-                        return eloResults.passed > 0;
-                    case 'socket':
-                        const socketResults = {};
-                        await testSocketConnections(socketResults);
-                        return socketResults.passed > 0;
-                    case 'all':
-                        return await runAllTests();
-                    default:
-                        log(`Unknown test: ${testName}. Available tests: matchmaking, database, auth, elo, socket, all`, 'warn');
-                        return false;
-                }
+            if (args.length > 0 && args[0] === 'matchmaking') {
+                log('Running matchmaking test...', 'info');
+                const result = await testMatchmaking();
+                return result;
             } else {
-                log('Running all tests...', 'info');
-                return await runAllTests();
-            }
-        }
-    },
-    
-    debug: {
-        description: 'Analyze and fix system issues',
-        execute: async (args) => {
-            if (args.length > 0) {
-                const debugTarget = args[0].toLowerCase();
-                
-                switch (debugTarget) {
-                    case 'matchmaking':
-                        return await debugMatchmaking();
-                    case 'schema':
-                        return await debugPrismaSchema();
-                    case 'sockets':
-                        return await debugSocketConnections();
-                    default:
-                        log(`Unknown debug target: ${debugTarget}. Available: matchmaking, schema, sockets`, 'warn');
-                        return false;
-                }
-            } else {
-                log('Debug options: matchmaking, schema, sockets', 'info');
+                log('Available tests: matchmaking', 'info');
                 return true;
             }
         }
-    },
-    
-    reload: {
-        description: 'Reload Prisma client to align with latest schema',
-        execute: async () => {
-            try {
-                log('Attempting to reconnect Prisma client...', 'info');
-                
-                // Disconnect existing client
-                await prisma.$disconnect();
-                log('Disconnected existing Prisma client', 'debug');
-                
-                // Try to create a new client instance by importing fresh
-                try {
-                    delete require.cache[require.resolve('./prisma/client')];
-                    const newPrisma = require('./prisma/client');
-                    
-                    // Test connection with new client
-                    const userCount = await newPrisma.user.count();
-                    log(`Successfully reconnected Prisma client. Found ${userCount} users.`, 'success');
-                    
-                    // Replace the global prisma instance
-                    prisma = newPrisma;
-                    
-                    // Run a simple test query
-                    const testMatch = await prisma.match.create({
-                        data: {
-                            player1Id: 1,
-                            player2Id: 2,
-                            completed: false
-                        }
-                    });
-                    
-                    log(`Successfully created test match with ID ${testMatch.id}`, 'success');
-                    
-                    // Clean up
-                    await prisma.match.delete({
-                        where: { id: testMatch.id }
-                    });
-                    
-                    log('Prisma client successfully reloaded and tested', 'success');
-                    return true;
-                } catch (error) {
-                    log(`Error reloading Prisma client module: ${error}`, 'error');
-                    
-                    // Try to reconnect with existing instance
-                    await prisma.$connect();
-                    log('Reconnected with existing Prisma client', 'info');
-                    
-                    // Test connection
-                    const userCount = await prisma.user.count();
-                    log(`Reconnection successful. Found ${userCount} users.`, 'success');
-                    return true;
-                }
-            } catch (error) {
-                log(`Failed to reload Prisma client: ${error}`, 'error');
-                return false;
-            }
-        }
-    },
-    
-    // ... other commands ...
+    }
 };
-
-// Test endpoint for matchmaking
-app.post('/api/test/matchmaking', isAdmin, async (req, res) => {
-  try {
-    const testResult = await testMatchmaking();
-    res.json({ success: testResult });
-  } catch (error) {
-    log(`Test error: ${error}`, 'error');
-    res.status(500).json({ error: 'Test execution failed' });
-  }
-});
-
-// ===== Comprehensive System Testing Functions =====
-
-// Function to run all system tests
-async function runAllTests() {
-  log(`🔍 Starting comprehensive system tests...`, 'info');
-  
-  let results = {
-    passed: 0,
-    failed: 0,
-    tests: []
-  };
-  
-  // Test database connection
-  await testDatabaseConnection(results);
-  
-  // Test user creation and authentication
-  await testUserAuth(results);
-  
-  // Test matchmaking system
-  await testMatchmaking(results);
-  
-  // Test socket connections
-  await testSocketConnections(results);
-  
-  // Test ELO rating system
-  await testEloRatings(results);
-  
-  // Print test summary
-  log(`
-=== 🧪 Test Summary ===
-✅ ${results.passed} tests passed
-❌ ${results.failed} tests failed
-====================
-  `, 'info');
-  
-  // Log detailed results
-  results.tests.forEach(test => {
-    log(`${test.passed ? '✅' : '❌'} ${test.name}: ${test.message}`, test.passed ? 'success' : 'error');
-  });
-  
-  return results;
-}
-
-// Test database connection
-async function testDatabaseConnection(results) {
-  const testName = "Database Connection";
-  try {
-    log(`Testing database connection...`, 'info');
-    
-    // Try a simple connection test using the new ping method
-    const pingResult = await prisma.ping();
-    
-    if (!pingResult.connected) {
-      throw new Error(pingResult.error || 'Connection test failed');
-    }
-    
-    // Try a simple query to verify connection
-    const userCount = await prisma.user.count();
-    log(`Database connection successful. Found ${userCount} users.`, 'debug');
-    
-    results.passed++;
-    results.tests.push({
-      name: testName,
-      passed: true,
-      message: "Successfully connected to database"
-    });
-  } catch (error) {
-    log(`Database connection test failed: ${error}`, 'error');
-    results.failed++;
-    results.tests.push({
-      name: testName,
-      passed: false,
-      message: `Failed to connect to database: ${error.message}`
-    });
-  }
-}
-
-// Test user creation and authentication
-async function testUserAuth(results) {
-  const testName = "User Authentication";
-  try {
-    log(`Testing user authentication...`, 'info');
-    
-    // Create test user if it doesn't exist
-    let testUser = await prisma.user.findUnique({
-      where: { username: 'testuser' }
-    });
-    
-    if (!testUser) {
-      // Hash password
-      const hashedPassword = await bcrypt.hash('testpassword', 10);
-      
-      // Create user
-      testUser = await prisma.user.create({
-        data: {
-          username: 'testuser',
-          password: hashedPassword,
-          elo: 1200
-        }
-      });
-      log(`Created test user: ${testUser.username}`, 'debug');
-    }
-    
-    // Test password validation
-    const validPassword = await bcrypt.compare('testpassword', testUser.password);
-    
-    if (!validPassword) {
-      throw new Error('Password validation failed');
-    }
-    
-    results.passed++;
-    results.tests.push({
-      name: testName,
-      passed: true,
-      message: "User authentication working correctly"
-    });
-  } catch (error) {
-    log(`User authentication test failed: ${error}`, 'error');
-    results.failed++;
-    results.tests.push({
-      name: testName,
-      passed: false,
-      message: `Failed to verify user authentication: ${error.message}`
-    });
-  }
-}
-
-// Enhanced matchmaking system test with more detailed checks
-async function testMatchmaking(results) {
-  const testName = "Matchmaking System";
-  try {
-    log(`Running enhanced matchmaking system test...`, 'info');
-
-    // Create test users if they don't exist
-    let testUser1 = await prisma.user.findUnique({
-      where: { username: 'testuser1' }
-    });
-
-    let testUser2 = await prisma.user.findUnique({
-      where: { username: 'testuser2' }
-    });
-
-    if (!testUser1) {
-      testUser1 = await prisma.user.create({
-        data: {
-          username: 'testuser1',
-          password: 'password',
-          elo: 1200
-        }
-      });
-      log(`Created test user 1`, 'info');
-    }
-
-    if (!testUser2) {
-      testUser2 = await prisma.user.create({
-        data: {
-          username: 'testuser2',
-          password: 'password',
-          elo: 1200
-        }
-      });
-      log(`Created test user 2`, 'info');
-    }
-
-    // Make sure users are not in queue already
-    await prisma.pairingQueue.deleteMany({
-      where: {
-        userId: { in: [testUser1.id, testUser2.id] }
-      }
-    });
-    log(`Cleared queue for test users`, 'debug');
-
-    // 1. Test queue entry
-    const queueEntry1 = await prisma.pairingQueue.create({
-      data: {
-        userId: testUser1.id
-      }
-    });
-    log(`Added test user 1 to queue`, 'debug');
-    
-    // Verify queue entry
-    if (!queueEntry1 || queueEntry1.userId !== testUser1.id) {
-      throw new Error('Failed to create queue entry for user 1');
-    }
-
-    const queueEntry2 = await prisma.pairingQueue.create({
-      data: {
-        userId: testUser2.id
-      }
-    });
-    log(`Added test user 2 to queue`, 'debug');
-    
-    // Verify queue entry
-    if (!queueEntry2 || queueEntry2.userId !== testUser2.id) {
-      throw new Error('Failed to create queue entry for user 2');
-    }
-
-    // 2. Test match creation
-    log(`Attempting to create match...`, 'debug');
-    const matchResult = await tryMatchmaking(testUser1.id);
-
-    if (!matchResult) {
-      throw new Error('No match was created');
-    }
-
-    log(`Match created with room ID: ${matchResult.roomId}`, 'debug');
-
-    // 3. Verify match record in database
-    const matchId = parseInt(matchResult.roomId.split('-').pop());
-    const match = await prisma.match.findUnique({
-      where: { id: matchId }
-    });
-
-    if (!match) {
-      throw new Error('Match record not found in database');
-    }
-
-    log(`Verified match record in database: ID ${match.id}, gameMode: ${match.gameMode}`, 'debug');
-
-    // 4. Verify room creation in memory
-    const room = rooms.get(matchResult.roomId);
-    if (!room) {
-      throw new Error('Room not created in memory');
-    }
-
-    log(`Verified room in memory: ${matchResult.roomId}`, 'debug');
-
-    // 5. Verify player lastRoom updates
-    const user1 = await prisma.user.findUnique({
-      where: { id: testUser1.id }
-    });
-
-    const user2 = await prisma.user.findUnique({
-      where: { id: testUser2.id }
-    });
-
-    if (user1.lastRoom !== matchResult.roomId || user2.lastRoom !== matchResult.roomId) {
-      throw new Error('User lastRoom fields not properly updated');
-    }
-
-    log(`Verified lastRoom updates for both users`, 'debug');
-
-    // 6. Clean up
-    await prisma.pairingQueue.deleteMany({
-      where: {
-        userId: { in: [testUser1.id, testUser2.id] }
-      }
-    });
-    
-    // Success!
-    results.passed++;
-    results.tests.push({
-      name: testName,
-      passed: true,
-      message: "Matchmaking system working correctly"
-    });
-    log(`Matchmaking test completed successfully`, 'success');
-
-    return true;
-  } catch (error) {
-    log(`Matchmaking test error: ${error}`, 'error');
-    results.failed++;
-    results.tests.push({
-      name: testName,
-      passed: false,
-      message: `Matchmaking test failed: ${error.message}`
-    });
-    return false;
-  }
-}
-
-// Test socket connections
-async function testSocketConnections(results) {
-  const testName = "Socket Connections";
-  try {
-    log(`Testing socket connections...`, 'info');
-    
-    // Verify socket server is running
-    if (!io) {
-      throw new Error('Socket.IO server not initialized');
-    }
-    
-    // Check if we have any connected sockets
-    const connectedSocketCount = io.sockets.sockets.size;
-    log(`Current connected sockets: ${connectedSocketCount}`, 'debug');
-    
-    // Test internal socket event emitter 
-    let eventReceived = false;
-    const testEvent = 'testSocketEvent';
-    
-    // Create a test handler
-    const testHandler = (data) => {
-      eventReceived = true;
-      log(`Test socket event received: ${JSON.stringify(data)}`, 'debug');
-    };
-    
-    // Attach test handler to all sockets
-    io.sockets.sockets.forEach(socket => {
-      socket.once(testEvent, testHandler);
-    });
-    
-    // Emit test event to all sockets
-    io.emit(testEvent, { test: true, timestamp: Date.now() });
-    
-    // Wait a short time for event to be processed
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // Check if any sockets received event
-    if (connectedSocketCount > 0 && !eventReceived) {
-      log(`Warning: No sockets received test event`, 'warn');
-    }
-    
-    results.passed++;
-    results.tests.push({
-      name: testName,
-      passed: true,
-      message: `Socket.IO server running with ${connectedSocketCount} connections`
-    });
-  } catch (error) {
-    log(`Socket connections test failed: ${error}`, 'error');
-    results.failed++;
-    results.tests.push({
-      name: testName,
-      passed: false,
-      message: `Failed to test socket connections: ${error.message}`
-    });
-  }
-}
-
-// Test ELO rating system
-async function testEloRatings(results) {
-  const testName = "ELO Rating System";
-  try {
-    log(`Testing ELO rating system...`, 'info');
-    
-    // Create a test match
-    const testMatch = await prisma.match.create({
-      data: {
-        player1Id: 1, // Assuming ID 1 exists
-        player2Id: 2, // Assuming ID 2 exists
-        completed: false,
-        gameMode: 'classic'
-      }
-    });
-    
-    log(`Created test match: ${testMatch.id}`, 'debug');
-    
-    // Get initial ELO ratings
-    const player1Before = await prisma.user.findUnique({
-      where: { id: 1 },
-      select: { elo: true }
-    });
-    
-    const player2Before = await prisma.user.findUnique({
-      where: { id: 2 },
-      select: { elo: true }
-    });
-    
-    log(`Initial ELO - Player 1: ${player1Before.elo}, Player 2: ${player2Before.elo}`, 'debug');
-    
-    // Test ELO calculation with player 1 as winner
-    const eloResult = await updateEloRatings(testMatch.id, 1);
-    
-    if (!eloResult) {
-      throw new Error('ELO update failed');
-    }
-    
-    // Get updated ELO ratings
-    const player1After = await prisma.user.findUnique({
-      where: { id: 1 },
-      select: { elo: true }
-    });
-    
-    const player2After = await prisma.user.findUnique({
-      where: { id: 2 },
-      select: { elo: true }
-    });
-    
-    log(`Updated ELO - Player 1: ${player1After.elo}, Player 2: ${player2After.elo}`, 'debug');
-    
-    // Verify ELO changes
-    if (player1After.elo <= player1Before.elo) {
-      throw new Error('Winner ELO did not increase');
-    }
-    
-    if (player2After.elo >= player2Before.elo) {
-      throw new Error('Loser ELO did not decrease');
-    }
-    
-    // Verify match record was updated
-    const updatedMatch = await prisma.match.findUnique({
-      where: { id: testMatch.id }
-    });
-    
-    if (!updatedMatch.completed || updatedMatch.winnerId !== 1) {
-      throw new Error('Match record not properly updated');
-    }
-    
-    // Check if winnerEloChange and loserEloChange were set
-    if (updatedMatch.winnerEloChange === null || updatedMatch.loserEloChange === null) {
-      throw new Error('ELO change fields not set in match record');
-    }
-    
-    log(`Match updated - Winner ELO change: +${updatedMatch.winnerEloChange}, Loser ELO change: -${Math.abs(updatedMatch.loserEloChange)}`, 'debug');
-    
-    results.passed++;
-    results.tests.push({
-      name: testName,
-      passed: true,
-      message: "ELO rating system working correctly"
-    });
-  } catch (error) {
-    log(`ELO rating test failed: ${error}`, 'error');
-    results.failed++;
-    results.tests.push({
-      name: testName,
-      passed: false,
-      message: `Failed to test ELO rating system: ${error.message}`
-    });
-  }
-}
-
-// ===== Debug Functions =====
-
-// Debug matchmaking system
-async function debugMatchmaking() {
-  try {
-    log('🔍 Debugging matchmaking system...', 'info');
-    
-    // Check tryMatchmaking function for potential issues
-    log('Analyzing matchmaking code for issues...', 'info');
-    
-    // Inspect the match creation part in the tryMatchmaking function
-    const matchCreationCode = tryMatchmaking.toString().match(/const dbMatch = await prisma\.match\.create\([^)]+\)/s);
-    
-    if (matchCreationCode) {
-      log(`Found match creation code: ${matchCreationCode[0]}`, 'debug');
-      
-      // Check if the code includes gameMode
-      const includesGameMode = matchCreationCode[0].includes('gameMode');
-      log(`Match creation code ${includesGameMode ? 'includes' : 'does not include'} gameMode field`, 'info');
-      
-      if (includesGameMode) {
-        log('⚠️ Potential issue found: Match creation includes gameMode field', 'warn');
-        
-        // Check if the database schema includes gameMode field
-        let schemaHasGameMode = false;
-        try {
-          // Check schema by creating a test match
-          await prisma.match.create({
-            data: {
-              player1Id: 1, // Assuming ID 1 exists
-              player2Id: 2, // Assuming ID 2 exists
-              completed: false,
-              gameMode: 'test'
-            }
-          });
-          
-          schemaHasGameMode = true;
-          log('✅ Schema validation passed: gameMode field exists in the Match model', 'success');
-        } catch (error) {
-          schemaHasGameMode = false;
-          log(`❌ Schema validation failed: ${error.message}`, 'error');
-          
-          // Check if the error is due to gameMode field
-          if (error.message.includes('gameMode')) {
-            log('The error is related to the gameMode field', 'debug');
-          }
-        }
-        
-        // Suggest solution
-        if (!schemaHasGameMode) {
-          log(`
-🔧 Solution:
-1. Either remove the gameMode field from match creation in tryMatchmaking() function
-2. Or add the gameMode field to the Match model in the Prisma schema`, 'info');
-        }
-      } else {
-        log('✅ Match creation code does not include gameMode field, this is not the source of the issue', 'success');
-      }
-    } else {
-      log('❌ Could not find match creation code in the tryMatchmaking function', 'error');
-    }
-    
-    // Check existing matches in the database
-    const matchCount = await prisma.match.count();
-    log(`Database has ${matchCount} matches`, 'info');
-    
-    if (matchCount > 0) {
-      // Check a sample match to diagnose issues
-      const sampleMatch = await prisma.match.findFirst();
-      log(`Sample match data: ${JSON.stringify(sampleMatch, null, 2)}`, 'debug');
-    }
-    
-    // Check queue status
-    const queueCount = await prisma.pairingQueue.count();
-    log(`Queue has ${queueCount} entries`, 'info');
-    
-    if (queueCount > 0) {
-      // Sample queue entries
-      const queueEntries = await prisma.pairingQueue.findMany({
-        take: 3,
-        include: { user: true }
-      });
-      
-      log(`Sample queue entries: ${JSON.stringify(
-        queueEntries.map(q => ({
-          userId: q.userId,
-          username: q.user.username,
-          elo: q.user.elo,
-          joinedAt: q.joinedAt
-        })), null, 2)}`, 'debug');
-    }
-    
-    log('✅ Matchmaking system diagnosis complete', 'success');
-    return true;
-  } catch (error) {
-    log(`❌ Error debugging matchmaking: ${error}`, 'error');
-    return false;
-  }
-}
-
-// Debug Prisma schema
-async function debugPrismaSchema() {
-  try {
-    log('🔍 Debugging Prisma schema...', 'info');
-    
-    // Get all models from Prisma
-    log('Checking Prisma models...', 'info');
-    
-    // Inspect Match model
-    log('Analyzing Match model...', 'info');
-    
-    try {
-      // Get sample Match to check structure
-      const sampleMatch = await prisma.match.findFirst({
-        select: {
-          id: true
-        }
-      });
-      
-      if (sampleMatch) {
-        // Get full structure by using a raw query
-        const matchFields = Object.keys(sampleMatch);
-        log(`Match model fields from sample: ${matchFields.join(', ')}`, 'debug');
-      }
-      
-      // Attempt to get model metadata (not directly available but let's try)
-      const modelStructure = {};
-      
-      // Test if gameMode field exists by trying to create a record with it
-      try {
-        const testMatch = await prisma.match.create({
-          data: {
-            player1Id: 1,
-            player2Id: 2,
-            completed: false,
-            gameMode: 'test'
-          }
-        });
-        
-        modelStructure.hasGameMode = true;
-        log('✅ Match model has gameMode field', 'success');
-        
-        // Clean up the test match
-        await prisma.match.delete({
-          where: { id: testMatch.id }
-        });
-      } catch (error) {
-        modelStructure.hasGameMode = false;
-        log(`❌ Match model does not have gameMode field: ${error.message}`, 'error');
-      }
-      
-      if (!modelStructure.hasGameMode) {
-        log('Checking if a migration is needed...', 'info');
-        
-        // Check if there's a migration for adding gameMode field
-        try {
-          const results = await prisma.$executeRaw`
-            SELECT name FROM sqlite_master 
-            WHERE type='table' 
-            AND name LIKE 'Migration%' 
-            AND sql LIKE '%gameMode%'
-          `;
-          
-          log(`Found ${results} migrations with gameMode`, 'info');
-          
-          log(`
-🔧 Solution:
-You need to add the gameMode field to your Match model in schema.prisma:
-
-model Match {
-  // ... other fields
-  gameMode   String?   // Add this field
-  // ... other fields
-}
-
-Then run: npx prisma migrate dev --name add_game_mode_field`, 'info');
-        } catch (error) {
-          log(`Error checking migrations: ${error.message}`, 'error');
-        }
-      }
-    } catch (error) {
-      log(`Error analyzing Match model: ${error.message}`, 'error');
-    }
-    
-    log('✅ Prisma schema diagnosis complete', 'success');
-    return true;
-  } catch (error) {
-    log(`❌ Error debugging Prisma schema: ${error}`, 'error');
-    return false;
-  }
-}
-
-// Debug socket connections
-async function debugSocketConnections() {
-  try {
-    log('🔍 Debugging socket connections...', 'info');
-    
-    // Get connected socket count
-    const connectedSocketCount = io.sockets.sockets.size;
-    log(`Currently connected sockets: ${connectedSocketCount}`, 'info');
-    
-    if (connectedSocketCount > 0) {
-      // List connected socket IDs
-      const socketIds = Array.from(io.sockets.sockets.keys());
-      log(`Connected socket IDs: ${socketIds.join(', ')}`, 'debug');
-      
-      // Check socket mappings
-      log(`Active user room mappings: ${userRooms.size}`, 'info');
-      
-      // List active rooms
-      const activeRooms = Array.from(rooms.keys());
-      log(`Active rooms: ${activeRooms.join(', ')}`, 'info');
-      
-      // Check each socket's connection status and rooms
-      socketIds.forEach(socketId => {
-        const socket = io.sockets.sockets.get(socketId);
-        const socketRooms = Array.from(socket.rooms.values()).filter(r => r !== socketId);
-        log(`Socket ${socketId} is in rooms: ${socketRooms.join(', ') || 'none'}`, 'debug');
-      });
-      
-      // Test sending a ping to all sockets
-      io.emit('ping', { timestamp: Date.now() });
-      log('Sent ping to all connected sockets', 'debug');
-    } else {
-      log('No sockets are currently connected', 'warn');
-    }
-    
-    log('✅ Socket connections diagnosis complete', 'success');
-    return true;
-  } catch (error) {
-    log(`❌ Error debugging socket connections: ${error}`, 'error');
-    return false;
-  }
-}
-
-// Handle roomJoined event - client side code
-// Add better debugging in game-room.html
-socket.on('roomCheckResult', (data) => {
-    console.log('Room check result:', data);
-    if (!data.exists) {
-        const reason = data.reason || data.error || 'Unknown reason';
-        console.error(`Room does not exist or has expired. Reason: ${reason}`);
-        alert(`Room does not exist or has expired. Reason: ${reason}`);
-        // Redirect to home page
-        window.location.href = '/';
-        return;
-    }
-    
-    // ... rest of existing code ...
-});
-
-// Load test room data if available
-try {
-  const testRoomPath = path.join(__dirname, 'test-room-data.json');
-  if (fs.existsSync(testRoomPath)) {
-    const testRoomData = JSON.parse(fs.readFileSync(testRoomPath, 'utf8'));
-    const { roomId, player1Id, player2Id, matchId } = testRoomData;
-    
-    log(`Loading test room ${roomId} from test-room-data.json`, 'info', 'STARTUP');
-    
-    // Create the room in memory
-    rooms.set(roomId, {
-      id: roomId,
-      players: [
-        { userId: player1Id, socketId: null, ready: false, isHost: true, username: 'TestUser' },
-        { userId: player2Id, socketId: null, ready: false, isHost: false, username: 'TestUser2' }
-      ],
-      gameMode: 'classic',
-      Started: false,
-      matchId: matchId
-    });
-    
-    log(`Test room ${roomId} loaded with players ${player1Id} and ${player2Id}`, 'info', 'STARTUP');
-  }
-} catch (error) {
-  log(`Error loading test room data: ${error}`, 'error', 'STARTUP');
-}

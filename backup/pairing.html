@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Find a Match - World Peace Online</title>
+    <link rel="stylesheet" href="styles.css">
+    <meta name="description" content="Find opponents and join matchmaking in World Peace Online">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --primary: #4CAF50;
+            --primary-dark: #3e8e41;
+            --secondary: #ff9800;
+            --danger: #f44336;
+            --light-bg: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .nav-links a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: bold;
+            padding: 8px 12px;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        .nav-links a:hover,
+        .nav-links a:focus {
+            background-color: var(--light-bg);
+            outline: none;
+            text-decoration: underline;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            background-color: var(--light-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .user-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-right: 20px;
+            flex-shrink: 0;
+        }
+
+        .user-stats {
+            flex: 1;
+        }
+
+        .user-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .user-elo {
+            font-size: 16px;
+            color: #555;
+            margin-bottom: 5px;
+        }
+        
+        .elo-info {
+            font-size: 14px;
+            color: #777;
+        }
+
+        .options-form {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .elo-range {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            position: relative;
+            height: 30px;
+        }
+        
+        .elo-range-bar {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 6px;
+            background-color: #ddd;
+            border-radius: 3px;
+            transform: translateY(-50%);
+        }
+        
+        .elo-range-selection {
+            position: absolute;
+            top: 50%;
+            height: 6px;
+            background-color: var(--primary);
+            border-radius: 3px;
+            transform: translateY(-50%);
+        }
+        
+        .elo-marker {
+            position: absolute;
+            top: 50%;
+            width: 2px;
+            height: 12px;
+            background-color: #333;
+            transform: translateY(-50%);
+        }
+        
+        .elo-marker.your-elo {
+            width: 4px;
+            background-color: var(--secondary);
+        }
+        
+        .elo-marker::after {
+            content: attr(data-elo);
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        
+        .elo-marker.your-elo::after {
+            font-weight: bold;
+            color: var(--secondary);
+        }
+
+        .queue-status {
+            text-align: center;
+            padding: 30px 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .status-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .status-searching {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        
+        .status-details {
+            background-color: var(--light-bg);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: left;
+        }
+        
+        .status-details p {
+            margin: 5px 0;
+        }
+
+        .time-elapsed {
+            font-size: 32px;
+            font-weight: bold;
+            margin: 20px 0;
+            color: var(--primary);
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px 0;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .error-message, .success-message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .error-message {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+
+        .success-message {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .btn-large {
+            padding: 12px 20px;
+            font-size: 16px;
+            width: 100%;
+        }
+
+        .btn-cancel {
+            background-color: var(--danger);
+        }
+        
+        .recent-matches {
+            margin-top: 30px;
+        }
+        
+        .matches-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .matches-table th {
+            background-color: var(--primary);
+            color: white;
+            text-align: left;
+            padding: 12px;
+        }
+        
+        .matches-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .matches-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .matches-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        .result-win {
+            color: var(--primary);
+            font-weight: bold;
+        }
+        
+        .result-loss {
+            color: var(--danger);
+        }
+        
+        .result-draw {
+            color: #666;
+        }
+        
+        .elo-change {
+            font-size: 12px;
+            display: inline-block;
+            padding: 2px 5px;
+            border-radius: 3px;
+            margin-left: 5px;
+        }
+        
+        .elo-increase {
+            background-color: #e8f5e9;
+            color: var(--primary);
+        }
+        
+        .elo-decrease {
+            background-color: #ffebee;
+            color: var(--danger);
+        }
+        
+        .no-matches {
+            text-align: center;
+            padding: 20px;
+            color: #777;
+            font-style: italic;
+        }
+        
+        .tooltip {
+            display: inline-block;
+            background-color: #f0f0f0;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 16px;
+            font-size: 12px;
+            font-weight: bold;
+            color: #555;
+            cursor: help;
+            position: relative;
+            margin-left: 5px;
+        }
+        
+        .tooltip:hover::after,
+        .tooltip:focus::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 4px;
+            white-space: nowrap;
+            font-weight: normal;
+            font-size: 12px;
+            z-index: 1;
+        }
+        
+        /* Game-inspired UI elements */
+        .premium-match {
+            border: 2px solid #ffd700;
+            background: linear-gradient(to right, rgba(255,215,0,0.1), rgba(255,215,0,0.3));
+            box-shadow: 0 0 10px rgba(255,215,0,0.5);
+        }
+        
+        .rank-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background-color: #673ab7;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+        
+        /* Accessibility focus styles */
+        .tooltip:focus,
+        button:focus,
+        input:focus,
+        a:focus {
+            outline: 2px solid #4a69bd;
+            outline-offset: 2px;
+        }
+        
+        /* Skip to content link */
+        .skip-link {
+            position: absolute;
+            left: -9999px;
+            z-index: 999;
+            padding: 1em;
+            background-color: white;
+            color: black;
+            opacity: 0;
+        }
+        
+        .skip-link:focus {
+            left: 0;
+            opacity: 1;
+        }
+        
+        /* Responsive adjustments */
+        @media screen and (max-width: 768px) {
+            .page-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .nav-links {
+                margin-top: 10px;
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            .user-info {
+                flex-direction: column;
+                text-align: center;
+                align-items: center;
+            }
+            
+            .user-avatar {
+                margin: 0 0 10px 0;
+            }
+            
+            .form-group input,
+            button {
+                font-size: 16px; /* Prevent zoom on iOS */
+                min-height: 44px; /* Better touch targets */
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            .section {
+                padding: 15px;
+            }
+            
+            .status-details {
+                padding: 10px;
+            }
+            
+            /* Improved table display on mobile */
+            .matches-table {
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+            }
+        }
+    </style>
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    <div class="container" id="main-content">
+        <div class="page-header">
+            <h1>Find a Match</h1>
+            <nav class="nav-links" aria-label="Main navigation">
+                <a href="dashboard.html">Dashboard</a>
+                <a href="friends.html">Friends</a>
+                <a href="index.html">Home</a>
+            </nav>
+        </div>
+
+        <div id="errorContainer" class="error-message" style="display: none;" role="alert" aria-live="assertive"></div>
+        <div id="successContainer" class="success-message" style="display: none;" role="alert" aria-live="assertive"></div>
+
+        <div class="user-info" aria-labelledby="userName">
+            <div class="user-avatar" id="userAvatar" aria-hidden="true">?</div>
+            <div class="user-stats">
+                <div class="user-name" id="userName">Loading...</div>
+                <div class="user-elo" id="userElo">ELO: ---</div>
+                <div class="elo-info">Based on the <button type="button" class="tooltip" role="button" tabindex="0" aria-label="Elo rating system information" data-tooltip="The Elo rating system is a method for calculating the relative skill levels of players in zero-sum games such as chess.">?</button> rating system, your score changes when you win or lose games.</div>
+            </div>
+        </div>
+
+        <div class="section" id="matchmakingOptions">
+            <h2>Matchmaking Options</h2>
+            <form id="pairingForm" class="options-form">
+                <div class="form-group">
+                    <label for="eloMin">Minimum ELO (optional) <button type="button" class="tooltip" tabindex="0" data-tooltip="Minimum ELO rating of opponents you wish to play against" aria-label="Minimum ELO rating help">?</button></label>
+                    <input type="number" id="eloMin" placeholder="Minimum opponent ELO" aria-describedby="eloMinHelp">
+                    <span id="eloMinHelp" class="sr-only">Enter the minimum ELO rating of opponents you wish to play against</span>
+                </div>
+                <div class="form-group">
+                    <label for="eloMax">Maximum ELO (optional) <button type="button" class="tooltip" tabindex="0" data-tooltip="Maximum ELO rating of opponents you wish to play against" aria-label="Maximum ELO rating help">?</button></label>
+                    <input type="number" id="eloMax" placeholder="Maximum opponent ELO" aria-describedby="eloMaxHelp">
+                    <span id="eloMaxHelp" class="sr-only">Enter the maximum ELO rating of opponents you wish to play against</span>
+                </div>
+                
+                <div class="elo-range" aria-hidden="true">
+                    <div class="elo-range-bar"></div>
+                    <div class="elo-range-selection" id="eloSelection"></div>
+                    <div class="elo-marker your-elo" id="yourEloMarker" data-elo="Your ELO"></div>
+                    <div class="elo-marker" style="left: 10%" data-elo="1000"></div>
+                    <div class="elo-marker" style="left: 30%" data-elo="1200"></div>
+                    <div class="elo-marker" style="left: 50%" data-elo="1400"></div>
+                    <div class="elo-marker" style="left: 70%" data-elo="1600"></div>
+                    <div class="elo-marker" style="left: 90%" data-elo="1800"></div>
+                </div>
+                
+                <div style="margin-top: 40px;">
+                    <button type="submit" class="btn btn-large">Find a Match</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="queue-status" id="queueStatus" role="status" aria-live="polite">
+            <div class="status-title">Looking for Opponents</div>
+            <div class="loading-spinner" aria-hidden="true"></div>
+            <div class="time-elapsed" id="timeElapsed" aria-label="Time elapsed">00:00</div>
+            
+            <div class="status-details">
+                <p><strong>Your ELO:</strong> <span id="statusElo">---</span></p>
+                <p><strong>Target ELO range:</strong> <span id="statusEloRange">Any</span></p>
+                <p><strong>Players in queue:</strong> <span id="playersInQueue" class="pulse">Searching...</span></p>
+                <p><strong>Status:</strong> <span id="queueStatusText">Waiting for match...</span></p>
+            </div>
+            
+            <div class="queue-actions">
+                <button id="checkMatchesBtn" class="btn btn-large" style="margin-bottom: 10px; background-color: #2ecc71;">Check Now</button>
+                <button id="cancelSearch" class="btn btn-large btn-cancel">Cancel</button>
+            </div>
+        </div>
+        
+        <div class="section recent-matches" id="recentMatchesSection">
+            <h2>Recent Matches</h2>
+            <div id="recentMatchesList" aria-live="polite">
+                <div class="loading-spinner" id="matchesLoading"></div>
+                <div class="no-matches">No recent matches found</div>
+                <!-- Matches will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let queueStartTime = null;
+        let timerInterval = null;
+        let userData = null;
+        let eloRange = { min: 0, max: 2000 };
+        const socket = io();
+        let currentUserCount = 0;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add loading state
+            document.body.setAttribute('aria-busy', 'true');
+            
+            // Setup Socket.IO listeners
+            setupSocketListeners();
+            
+            // Check authentication and load user data
+            checkAuthAndLoadData();
+
+            // Set up ELO range visualization
+            setupEloRangeVisual();
+
+            // Pairing form submission
+            document.getElementById('pairingForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                joinMatchmaking();
+            });
+
+            // Cancel search button
+            document.getElementById('cancelSearch').addEventListener('click', function() {
+                leaveMatchmaking();
+            });
+
+            // Check if already in queue
+            checkQueueStatus();
+            
+            // Load recent matches
+            loadRecentMatches();
+            
+            // Add event listener for ELO inputs to update visualization
+            document.getElementById('eloMin').addEventListener('input', updateEloRangeVisual);
+            document.getElementById('eloMax').addEventListener('input', updateEloRangeVisual);
+            
+            // Make tooltips accessible with keyboard
+            document.querySelectorAll('.tooltip').forEach(tooltip => {
+                tooltip.addEventListener('keydown', function(e) {
+                    // Show tooltip on Enter or Space
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        tooltip.focus();
+                    }
+                });
+            });
+            
+            // Initialize check matches button
+            document.getElementById('checkMatchesBtn').addEventListener('click', function() {
+                checkForMatchesManually();
+            });
+            
+            // Remove loading state
+            document.body.removeAttribute('aria-busy');
+        });
+
+        // Setup Socket.IO event listeners
+        function setupSocketListeners() {
+            // Listen for user count updates
+            socket.on('userCountUpdate', function(data) {
+                currentUserCount = data.count;
+                // Update the player count display if we're in the queue
+                if (document.getElementById('queueStatus').style.display === 'block') {
+                    updatePlayerCountDisplay(currentUserCount);
+                }
+            });
+            
+            // Handle connection/reconnection
+            socket.on('connect', function() {
+                console.log('Connected to server');
+                socket.emit('getPlayerCount');
+            });
+            
+            socket.on('disconnect', function() {
+                console.log('Disconnected from server');
+            });
+
+            // Listen for match found event from server
+            socket.on('matchFound', function(data) {
+                console.log('Match found!', data);
+                
+                // Show success message
+                showSuccess('Match found! Joining game room...');
+                announceToScreenReader('Match found! You will be redirected to the game room with ' + data.opponent);
+                
+                // Stop all timers and polling
+                stopTimer();
+                stopAllSimulations();
+                
+                // Display match info
+                document.getElementById('queueStatusText').textContent = `Match found with ${data.opponent}!`;
+                
+                // Redirect to the game room
+                setTimeout(() => {
+                    window.location.href = `/game-room.html?roomId=${data.roomId}`;
+                }, 1500);
+            });
+            
+            socket.on('userCount', function(data) {
+                if (!data || typeof data.count !== 'number') return;
+                
+                currentUserCount = data.count;
+                
+                // Update the player count display if we're in the queue
+                if (document.getElementById('queueStatus').style.display === 'block') {
+                    updatePlayerCountDisplay(currentUserCount);
+                }
+            });
+        }
+
+        // Check if the user is authenticated and load their data
+        async function checkAuthAndLoadData() {
+            try {
+                const response = await fetch('/api/me');
+                if (!response.ok) {
+                    // If not authenticated, redirect to login
+                    window.location.href = "/login.html";
+                    return;
+                }
+
+                userData = await response.json();
+                
+                // Update UI with user data
+                document.getElementById('userName').textContent = userData.username;
+                document.getElementById('userElo').textContent = `ELO: ${userData.elo}`;
+                document.getElementById('userAvatar').textContent = userData.username.charAt(0).toUpperCase();
+                
+                // Update ELO marker
+                const eloMarker = document.getElementById('yourEloMarker');
+                eloMarker.setAttribute('data-elo', `Your ELO: ${userData.elo}`);
+                
+                // Position the ELO marker
+                positionYourEloMarker(userData.elo);
+                
+                // Update suggested ELO range
+                const suggestedMin = Math.max(userData.elo - 200, 800);
+                const suggestedMax = userData.elo + 200;
+                
+                document.getElementById('eloMin').placeholder = `Suggested: ${suggestedMin}`;
+                document.getElementById('eloMax').placeholder = `Suggested: ${suggestedMax}`;
+                
+                // Debug: check if user has a last room
+                const roomResponse = await fetch('/api/user/last-room');
+                if (roomResponse.ok) {
+                    const roomData = await roomResponse.json();
+                    console.log('Last room check at page load:', roomData);
+                    
+                    // If user already has a game room, offer to join it
+                    if (roomData.hasLastRoom && roomData.roomId) {
+                        // Check if the room actually exists via socket
+                        socket.emit('checkRoom', { roomId: roomData.roomId });
+                        
+                        socket.once('roomCheckResult', (checkResult) => {
+                            if (checkResult.exists) {
+                                showSuccess(`You have an active game room (${roomData.roomId}). Redirecting...`);
+                                // Directly attempt to join the room
+                                attemptToJoinRoom(roomData.roomId, userData.username);
+                            } else {
+                                console.log(`Room ${roomData.roomId} no longer exists, clearing lastRoom reference.`);
+                                // Clear the stale room reference
+                                fetch('/api/user/clear-last-room', { method: 'POST' })
+                                    .catch(err => console.error('Failed to clear last room:', err));
+                            }
+                        });
+                    }
+                }
+                
+                // Announce user data loaded
+                announceToScreenReader(`Welcome, ${userData.username}. Your current ELO is ${userData.elo}`);
+            } catch (error) {
+                console.error('Authentication check failed:', error);
+                showError('Authentication failed. Redirecting to login page.');
+                setTimeout(() => {
+                    window.location.href = "/login.html";
+                }, 2000);
+            }
+        }
+
+        // Set up ELO range visualization
+        function setupEloRangeVisual() {
+            updateEloRangeVisual();
+        }
+        
+        // Update ELO range visualization
+        function updateEloRangeVisual() {
+            const eloMin = document.getElementById('eloMin').value || 800;
+            const eloMax = document.getElementById('eloMax').value || 2000;
+            
+            // Calculate percentages
+            const minPercent = ((eloMin - eloRange.min) / (eloRange.max - eloRange.min)) * 100;
+            const maxPercent = ((eloMax - eloRange.min) / (eloRange.max - eloRange.min)) * 100;
+            
+            // Update selection bar
+            const selectionBar = document.getElementById('eloSelection');
+            selectionBar.style.left = `${minPercent}%`;
+            selectionBar.style.width = `${maxPercent - minPercent}%`;
+        }
+        
+        // Position your ELO marker
+        function positionYourEloMarker(elo) {
+            if (!elo) return;
+            
+            const percent = ((elo - eloRange.min) / (eloRange.max - eloRange.min)) * 100;
+            const marker = document.getElementById('yourEloMarker');
+            marker.style.left = `${percent}%`;
+        }
+
+        // Join matchmaking queue
+        async function joinMatchmaking() {
+            try {
+                // Show loading state
+                document.getElementById('pairingForm').setAttribute('aria-busy', 'true');
+                showMessage('Joining matchmaking queue...', 'info');
+                
+                const eloMin = document.getElementById('eloMin').value;
+                const eloMax = document.getElementById('eloMax').value;
+                
+                const response = await fetch('/api/pairing/join', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        eloMin: eloMin || null,
+                        eloMax: eloMax || null
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to join matchmaking');
+                }
+                
+                // Show queue status UI
+                document.getElementById('matchmakingOptions').style.display = 'none';
+                document.getElementById('queueStatus').style.display = 'block';
+                document.getElementById('recentMatchesSection').style.display = 'none';
+                
+                // Update status details
+                document.getElementById('statusElo').textContent = userData.elo;
+                document.getElementById('statusEloRange').textContent = 
+                    (eloMin && eloMax) ? `${eloMin} - ${eloMax}` : 
+                    eloMin ? `${eloMin}+` : 
+                    eloMax ? `Up to ${eloMax}` : 
+                    'Any';
+                
+                // Start timer
+                queueStartTime = new Date();
+                startTimer();
+                
+                // Check for matches every 5 seconds
+                pollForMatches();
+                
+                // Announce to screen readers
+                announceToScreenReader('Joined matchmaking queue. Searching for opponents.');
+            } catch (error) {
+                console.error('Error joining matchmaking:', error);
+                document.getElementById('pairingForm').removeAttribute('aria-busy');
+                showError(error.message || 'Could not join matchmaking queue');
+            }
+        }
+
+        // Leave matchmaking queue
+        async function leaveMatchmaking() {
+            try {
+                // Show loading state
+                document.getElementById('cancelSearch').setAttribute('disabled', 'true');
+                document.getElementById('cancelSearch').textContent = 'Leaving queue...';
+                
+                const response = await fetch('/api/pairing/leave', {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to leave matchmaking');
+                }
+                
+                // Reset UI
+                document.getElementById('matchmakingOptions').style.display = 'block';
+                document.getElementById('queueStatus').style.display = 'none';
+                document.getElementById('recentMatchesSection').style.display = 'block';
+                
+                // Stop timer
+                stopTimer();
+                
+                // Reset button state
+                document.getElementById('cancelSearch').removeAttribute('disabled');
+                document.getElementById('cancelSearch').textContent = 'Cancel';
+                
+                showSuccess('Left matchmaking queue');
+                announceToScreenReader('You have left the matchmaking queue');
+            } catch (error) {
+                console.error('Error leaving matchmaking:', error);
+                document.getElementById('cancelSearch').removeAttribute('disabled');
+                document.getElementById('cancelSearch').textContent = 'Cancel';
+                showError(error.message || 'Could not leave matchmaking queue');
+            }
+        }
+
+        // Check if already in queue
+        async function checkQueueStatus() {
+            try {
+                const response = await fetch('/api/pairing/status');
+                
+                if (!response.ok) {
+                    throw new Error('Failed to check queue status');
+                }
+                
+                const status = await response.json();
+                
+                if (status.inQueue) {
+                    // Show queue status UI
+                    document.getElementById('matchmakingOptions').style.display = 'none';
+                    document.getElementById('queueStatus').style.display = 'block';
+                    document.getElementById('recentMatchesSection').style.display = 'none';
+                    
+                    // Update status details
+                    document.getElementById('statusElo').textContent = userData ? userData.elo : '---';
+                    document.getElementById('statusEloRange').textContent = 
+                        (status.eloMin && status.eloMax) ? `${status.eloMin} - ${status.eloMax}` : 
+                        status.eloMin ? `${status.eloMin}+` : 
+                        status.eloMax ? `Up to ${status.eloMax}` : 
+                        'Any';
+                    
+                    // Start timer from join time
+                    queueStartTime = new Date(status.joinedAt);
+                    startTimer();
+                    
+                    // Poll for matches
+                    pollForMatches();
+                    
+                    // Announce to screen readers
+                    announceToScreenReader('You are already in a matchmaking queue');
+                }
+            } catch (error) {
+                console.error('Error checking queue status:', error);
+                showError('Could not check if you are in queue');
+            }
+        }
+
+        // Periodically update the status text to provide feedback
+        function updateQueueStatus() {
+            const statusElement = document.getElementById('queueStatusText');
+            
+            // Rotate through different status messages to show activity
+            const messages = [
+                "Searching for players...",
+                "Looking for compatible ELO...",
+                "Checking matchmaking system...",
+                "Waiting for opponent..."
+            ];
+            
+            let messageIndex = 0;
+            
+            const statusInterval = setInterval(() => {
+                statusElement.textContent = messages[messageIndex];
+                messageIndex = (messageIndex + 1) % messages.length;
+            }, 3000);
+            
+            // Store interval for cleanup
+            simulationIntervals.push(statusInterval);
+        }
+        
+        // Start timer to track waiting time
+        function startTimer() {
+            timerInterval = setInterval(updateTimer, 1000);
+            updateTimer(); // Update immediately
+            
+            // Use real player count instead of simulation
+            updatePlayerCountDisplay(currentUserCount);
+            
+            // Start status updates
+            updateQueueStatus();
+        }
+
+        // Stop timer
+        function stopTimer() {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+
+        // Update timer display
+        function updateTimer() {
+            if (!queueStartTime) return;
+            
+            const now = new Date();
+            const elapsedSeconds = Math.floor((now - queueStartTime) / 1000);
+            
+            const minutes = Math.floor(elapsedSeconds / 60);
+            const seconds = elapsedSeconds % 60;
+            
+            const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            document.getElementById('timeElapsed').textContent = timeString;
+            document.getElementById('timeElapsed').setAttribute('aria-label', `Time elapsed: ${minutes} minutes and ${seconds} seconds`);
+        }
+        
+        // Display player count with appropriate formatting
+        function updatePlayerCountDisplay(count) {
+            const playersElement = document.getElementById('playersInQueue');
+            
+            // Add thousands separator
+            const formattedCount = count.toLocaleString();
+            
+            // Update text and accessibility attributes
+            playersElement.textContent = formattedCount;
+            playersElement.setAttribute('aria-label', `${formattedCount} players currently in queue`);
+            
+            // Add visual feedback for changes
+            playersElement.classList.add('highlight');
+            setTimeout(() => {
+                playersElement.classList.remove('highlight');
+            }, 500);
+        }
+
+        // Poll for matches periodically
+        function pollForMatches() {
+            // Check every 5 seconds if we're still in queue
+            const pollTimeout = setTimeout(async () => {
+                try {
+                    console.log('Polling for matchmaking status...');
+                    document.getElementById('queueStatusText').textContent = "Checking queue status...";
+                    
+                    const response = await fetch('/api/pairing/status');
+                    
+                    if (!response.ok) {
+                        console.warn('Server returned error while checking queue status:', response.status);
+                        showError('Error checking queue status. Continuing to poll...');
+                        pollForMatches(); // Continue polling despite error
+                        return;
+                    }
+                    
+                    const status = await response.json();
+                    console.log('Queue status response:', status);
+                    
+                    // If no longer in queue, we might have a match or were removed
+                    if (!status.inQueue) {
+                        console.log('No longer in queue, checking for active game room...');
+                        document.getElementById('queueStatusText').textContent = "Match potential found, checking game room...";
+                        
+                        // Check for active game room
+                        try {
+                            const roomResponse = await fetch('/api/user/last-room');
+                            if (roomResponse.ok) {
+                                const roomData = await roomResponse.json();
+                                console.log('Last room data:', roomData);
+                                
+                                if (roomData.hasLastRoom && roomData.roomId) {
+                                    // Verify room exists using socket
+                                    socket.emit('checkRoom', { roomId: roomData.roomId });
+                                    
+                                    // Wait for socket response
+                                    socket.once('roomCheckResult', (checkResult) => {
+                                        if (checkResult.exists) {
+                                            // Show match found message
+                                            showSuccess('Match found! Joining game room...');
+                                            announceToScreenReader('Match found! Joining game room momentarily.');
+                                            
+                                            // Stop all ongoing polling and timers
+                                            stopTimer();
+                                            stopAllSimulations();
+                                            
+                                            // Actually join the room through socket
+                                            attemptToJoinRoom(roomData.roomId, userData.username);
+                                        } else {
+                                            // Room doesn't exist despite database saying it does
+                                            console.log('Room exists in database but not in memory, clearing reference');
+                                            fetch('/api/user/clear-last-room', { method: 'POST' })
+                                                .catch(err => console.error('Failed to clear last room:', err));
+                                            
+                                            // Manual check as fallback
+                                            checkForMatchesManually();
+                                        }
+                                    });
+                                    
+                                    return;
+                                } else {
+                                    console.log('No active game room found, but not in queue - calling check-matches');
+                                    // If not in queue but no room, try manual check as fallback
+                                    checkForMatchesManually();
+                                    return;
+                                }
+                            } else {
+                                console.warn('Error checking last room:', roomResponse.status);
+                                // Don't reset UI here, just continue polling
+                                pollForMatches();
+                                return;
+                            }
+                        } catch (roomError) {
+                            console.error('Error checking last room:', roomError);
+                            // If there's an error checking the room, continue polling instead of resetting
+                            pollForMatches();
+                            return;
+                        }
+                    } else {
+                        // Still in queue, keep polling
+                        console.log('Still in queue, continuing to poll...');
+                        document.getElementById('queueStatusText').textContent = "Waiting for match...";
+                        pollForMatches();
+                    }
+                } catch (error) {
+                    console.error('Error polling for matches:', error);
+                    showError('Communication error. Retrying...');
+                    document.getElementById('queueStatusText').textContent = "Communication error, retrying...";
+                    pollForMatches(); // Continue polling despite error
+                }
+            }, 5000);
+            
+            // Store timeout for cleanup
+            pollTimeouts.push(pollTimeout);
+        }
+        
+        // Store all intervals and timeouts for proper cleanup
+        const simulationIntervals = [];
+        const pollTimeouts = [];
+        
+        // Stop all simulations and polling
+        function stopAllSimulations() {
+            // Stop timer
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            
+            // Clear all simulation intervals
+            simulationIntervals.forEach(interval => clearInterval(interval));
+            simulationIntervals.length = 0;
+            
+            // Clear all polling timeouts
+            pollTimeouts.forEach(timeout => clearTimeout(timeout));
+            pollTimeouts.length = 0;
+        }
+        
+        // Load recent matches
+        async function loadRecentMatches() {
+            try {
+                // Show loading state
+                document.getElementById('matchesLoading').style.display = 'inline-block';
+                
+                const response = await fetch('/api/matches/recent');
+                
+                if (response.ok) {
+                    const matches = await response.json();
+                    renderRecentMatches(matches);
+                } else {
+                    console.error('Failed to load recent matches');
+                    document.getElementById('recentMatchesList').innerHTML = 
+                        '<div class="no-matches" role="alert">Could not load match history</div>';
+                }
+                
+                // Hide loading state
+                document.getElementById('matchesLoading').style.display = 'none';
+            } catch (error) {
+                console.error('Error loading recent matches:', error);
+                document.getElementById('matchesLoading').style.display = 'none';
+                document.getElementById('recentMatchesList').innerHTML = 
+                    '<div class="no-matches" role="alert">Error loading match history</div>';
+            }
+        }
+        
+        // Render recent matches
+        function renderRecentMatches(matches) {
+            const container = document.getElementById('recentMatchesList');
+            
+            if (!matches || matches.length === 0) {
+                container.innerHTML = '<div class="no-matches" role="status">No recent matches found</div>';
+                return;
+            }
+            
+            let html = `
+                <table class="matches-table" aria-label="Recent matches history">
+                    <thead>
+                        <tr>
+                            <th scope="col">Opponent</th>
+                            <th scope="col">Result</th>
+                            <th scope="col">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            // Mock matches for now
+            const mockMatches = [
+                { opponent: "Player123", result: "win", eloChange: "+15", date: new Date(Date.now() - 3600000) },
+                { opponent: "GrandMaster42", result: "loss", eloChange: "-12", date: new Date(Date.now() - 86400000) },
+                { opponent: "ChessWiz", result: "draw", eloChange: "+2", date: new Date(Date.now() - 172800000) }
+            ];
+            
+            mockMatches.forEach(match => {
+                const resultClass = match.result === 'win' ? 'result-win' : 
+                                  match.result === 'loss' ? 'result-loss' : 
+                                  'result-draw';
+                                  
+                const eloChangeClass = match.eloChange.startsWith('+') ? 'elo-increase' : 'elo-decrease';
+                
+                html += `
+                    <tr>
+                        <td>${match.opponent}</td>
+                        <td class="${resultClass}">
+                            ${match.result.charAt(0).toUpperCase() + match.result.slice(1)}
+                            <span class="elo-change ${eloChangeClass}" aria-label="ELO change: ${match.eloChange}">${match.eloChange}</span>
+                        </td>
+                        <td>${match.date.toLocaleDateString()}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = html;
+        }
+
+        // Show error message
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.textContent = message;
+            errorContainer.style.display = 'block';
+            
+            // Hide after 5 seconds
+            setTimeout(() => {
+                errorContainer.style.display = 'none';
+            }, 5000);
+        }
+
+        // Show success message
+        function showSuccess(message) {
+            const successContainer = document.getElementById('successContainer');
+            successContainer.textContent = message;
+            successContainer.style.display = 'block';
+            
+            // Hide after 5 seconds
+            setTimeout(() => {
+                successContainer.style.display = 'none';
+            }, 5000);
+        }
+        
+        // Show general message
+        function showMessage(message, type) {
+            if (type === 'error') {
+                showError(message);
+            } else if (type === 'success') {
+                showSuccess(message);
+            } else {
+                // For other message types, use success container but with different styling
+                const successContainer = document.getElementById('successContainer');
+                successContainer.textContent = message;
+                successContainer.style.display = 'block';
+                
+                if (type === 'info') {
+                    successContainer.style.backgroundColor = '#e3f2fd';
+                    successContainer.style.color = '#0d47a1';
+                }
+                
+                // Hide after 5 seconds
+                setTimeout(() => {
+                    successContainer.style.display = 'none';
+                    successContainer.style.backgroundColor = '';
+                    successContainer.style.color = '';
+                }, 5000);
+            }
+        }
+        
+        // Announce messages to screen readers
+        function announceToScreenReader(message) {
+            const ariaLive = document.createElement('div');
+            ariaLive.setAttribute('aria-live', 'polite');
+            ariaLive.classList.add('sr-only');
+            document.body.appendChild(ariaLive);
+            
+            setTimeout(() => {
+                ariaLive.textContent = message;
+                
+                // Remove after announcement
+                setTimeout(() => {
+                    document.body.removeChild(ariaLive);
+                }, 3000);
+            }, 100);
+        }
+
+        // New function to manually check for matches
+        async function checkForMatchesManually() {
+            try {
+                const checkBtn = document.getElementById('checkMatchesBtn');
+                
+                // Update button state
+                checkBtn.textContent = 'Checking...';
+                checkBtn.setAttribute('disabled', 'true');
+                
+                // Update status text
+                document.getElementById('queueStatusText').textContent = "Manually checking for matches...";
+                
+                // Call the server to check for matches
+                const response = await fetch('/api/pairing/check-matches', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to check for matches');
+                }
+                
+                const result = await response.json();
+                console.log('Manual match check result:', result);
+                
+                // Reset button state
+                checkBtn.textContent = 'Check Now';
+                checkBtn.removeAttribute('disabled');
+                
+                // Update status text with result
+                document.getElementById('queueStatusText').textContent = result.message;
+                
+                // If match found, join the room via socket
+                if (result.matched && result.roomId) {
+                    // Show match found message
+                    showSuccess('Match found! Joining game room...');
+                    announceToScreenReader('Match found! Joining game room momentarily.');
+                    
+                    // Stop all ongoing polling and timers
+                    stopTimer();
+                    stopAllSimulations();
+                    
+                    // Join via socket instead of direct redirect
+                    attemptToJoinRoom(result.roomId, userData.username);
+                }
+            } catch (error) {
+                console.error('Error checking for matches manually:', error);
+                const checkBtn = document.getElementById('checkMatchesBtn');
+                
+                // Reset button state
+                checkBtn.textContent = 'Check Now';
+                checkBtn.removeAttribute('disabled');
+                
+                // Show error
+                showError('Failed to check for matches. Try again later.');
+                
+                // Update status text
+                document.getElementById('queueStatusText').textContent = "Error checking for matches";
+            }
+        }
+
+        // Helper function to attempt joining a room via socket
+        function attemptToJoinRoom(roomId, username) {
+            console.log(`Attempting to join room ${roomId} as ${username}`);
+            
+            // Clear any existing event listeners to prevent duplicates
+            socket.off('roomJoined');
+            socket.off('error');
+            
+            // Join the room via socket
+            socket.emit('joinRoom', { roomId, username });
+            
+            // Listen for successful join response
+            socket.once('roomJoined', (data) => {
+                console.log('Successfully joined room:', data);
+                
+                // Successfully joined, redirect to game room
+                window.location.href = `/game-room.html?roomId=${roomId}`;
+            });
+            
+            // Listen for errors
+            socket.once('error', (errorData) => {
+                console.error('Error joining room:', errorData);
+                
+                if (errorData.message === 'room_not_found') {
+                    showError(`Room ${roomId} no longer exists. Starting new matchmaking...`);
+                    
+                    // Clear the stale room reference
+                    fetch('/api/user/clear-last-room', { method: 'POST' })
+                        .catch(err => console.error('Failed to clear last room:', err));
+                        
+                    // Show matchmaking options again after a short delay
+                    setTimeout(() => {
+                        document.getElementById('matchmakingOptions').style.display = 'block';
+                        document.getElementById('queueStatus').style.display = 'none';
+                        document.getElementById('recentMatchesSection').style.display = 'block';
+                    }, 2000);
+                } else {
+                    showError(`Failed to join room: ${errorData.message}`);
+                    
+                    // Reset UI to allow user to try again
+                    setTimeout(() => {
+                        document.getElementById('matchmakingOptions').style.display = 'block';
+                        document.getElementById('queueStatus').style.display = 'none';
+                        document.getElementById('recentMatchesSection').style.display = 'block';
+                    }, 3000);
+                }
+            });
+            
+            // Set a timeout in case we don't get a response
+            setTimeout(() => {
+                // If joinedRoom or error hasn't fired after 5 seconds
+                if (socket.listeners('roomJoined').length > 0 || socket.listeners('error').length > 0) {
+                    showError('Failed to join room: Timeout. Please try again.');
+                    
+                    // Remove the listeners we added
+                    socket.off('roomJoined');
+                    socket.off('error');
+                    
+                    // Reset UI to allow user to try again
+                    setTimeout(() => {
+                        document.getElementById('matchmakingOptions').style.display = 'block';
+                        document.getElementById('queueStatus').style.display = 'none';
+                        document.getElementById('recentMatchesSection').style.display = 'block';
+                    }, 2000);
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html> 
